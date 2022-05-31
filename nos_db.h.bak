@@ -1,0 +1,191 @@
+/*
+ ****************************************************************************************
+ * nos_db.h
+ *
+ * Author    : Infinicomm Technologies
+ * Ver       : 1.0
+ * Date      : 03-Jan-2019
+ *
+ * Copyright Infinicomm Technologies Ltd, 2019-20
+ *
+ ****************************************************************************************
+ */
+
+#ifndef _NOS_DB_H_
+#define _NOS_DB_H_
+
+#include "nos_types.h"
+
+//#ifdef NOS_DB_SQLITE
+
+#include <sqlite3.h>
+
+//#endif
+
+#define CONFIG_DB_ENABLED 1
+
+#define NOS_DB_NAME "/tmp/towermon.db"
+#define NOS_CONFIG_DB_NAME "/nOS_config.db"
+
+#define NOS_RUN_TIME_DB_TYPE                    1
+#define NOS_NEW_CONFIG_DB_TYPE                  2
+#define NOS_EXISTING_CONFIG_DB_TYPE             3
+#define NOS_SENSOR_DATA_TABLE_NAME              "object_data_table"
+
+typedef struct _nos_db_handle_
+{
+
+//#ifdef NOS_DB_SQLITE
+    sqlite3    *db_handle;
+//#endif
+    int        db_type;
+
+} NOS_DB_HANDLE;
+
+typedef enum 
+{
+    NOS_SENSOR_DESCRIPTOR_TABLE = 0,
+    NOS_SENSOR_DATA_TABLE ,
+
+} NOS_DB_TABLE_ID;
+
+typedef enum
+{
+    NOS_CONFIG_SNMP_CONFIG_TABLE = 0,
+
+} NOS_CONFIG_DB_TABLE_ID;
+
+typedef enum
+{
+    NOS_DB_INSERT = 0,
+    NOS_DB_UPDATE
+
+} NOS_DB_DML_CMD;
+
+/*
+ * Macros for the data_type field in object_data_table structure.
+ */
+
+#define NOS_ATTRIBUTE_UINT                              0x01
+#define NOS_ATTRIBUTE_INT                               0x02
+#define NOS_ATTRIBUTE_FLOAT                             0x03
+#define NOS_ATTRIBUTE_TEXT                              0x04
+
+#define NOS_ATTRIBUTE_DATA_LENGTH                       20
+
+/*
+ * Table creation macros.
+ */
+#define NOS_OBJECT_DESCRIPTION_TABLE_CREATE_STR          "CREATE TABLE object_description_table("\
+                                                         "object_index INTEGER, "\
+                                                         "object_class INTEGER, "\
+                                                         "object_sub_class INTEGER, "\
+                                                         "object_name TEXT, "\
+                                                         "object_attributes INTEGER);"
+
+#define NOS_OBJECT_DATA_TABLE_CREATE_STR                 "CREATE TABLE object_data_table("\
+                                                         "object_index INTEGER, "\
+                                                         "object_class INTEGER, "\
+                                                         "object_sub_class INTEGER, "\
+                                                         "attribute_id INTEGER, "\
+                                                         "data_type INTEGER, "\
+                                                         "data_value TEXT);"
+
+#define NOS_OBJECT_THRESHOLD_TABLE_CREATE_STR            "CREATE TABLE object_threshold_table("\
+                                                         "object_index INTEGER, "\
+                                                         "object_class INTEGER, "\
+                                                         "object_sub_class INTEGER, "\
+                                                         "attribute_id INTEGER, "\
+                                                         "data_type INTEGER, "\
+                                                         "data_value TEXT);"
+
+#define NOS_CONFIG_SNMP_SCALAR_TABLE_CREATE_STR          "CREATE TABLE snmp_scalar_table("\
+                                                         "ifc_index INTEGER, "\
+                                                         "attrib_1 INTEGER, "\
+                                                         "attrib_2 INTEGER, "\
+                                                         "attrib_3 INTEGER, "\
+                                                         "attrib_4 INTEGER, "\
+                                                         "attrib_5 INTEGER, "\
+                                                         "attrib_6 INTEGER, "\
+                                                         "attrib_7 INTEGER, "\
+                                                         "attrib_8 INTEGER, "\
+                                                         "attrib_9 INTEGER, "\
+                                                         "attrib_10 INTEGER, "\
+                                                         "attrib_11 INTEGER, "\
+                                                         "attrib_12 INTEGER, "\
+                                                         "attrib_13 INTEGER, "\
+                                                         "attrib_14 INTEGER, "\
+                                                         "attrib_15 INTEGER, "\
+                                                         "attrib_16 INTEGER);"
+
+#define NOS_CONFIG_SNMP_SCALAR_TABLE_STATUS_STR          "SELECT name FROM sqlite_master WHERE type='table' AND name='%s';"
+
+typedef struct _obj_description_table_entry_ {
+    nos_uint32      object_index;
+    nos_uint32      object_class;
+    nos_uint32      object_sub_class;
+    nos_char        *object_name;
+    nos_uint32      object_attributes;
+
+} OBJ_DESCRIPTION_TABLE_ENTRY;
+
+typedef struct _obj_data_table_entry_ {
+    nos_uint32      object_index;
+    nos_uint32      object_class;
+    nos_uint32      object_sub_class;
+    nos_uint32      attribute_id;
+    nos_uint32      data_type;
+    nos_char        *data_value;
+    nos_uint32      data_uint32;
+    nos_int32       data_int32;
+    nos_float       data_float;
+} OBJ_DATA_TABLE_ENTRY;
+
+typedef struct _obj_config_snmp_scalar_table_entry_ {
+    nos_uint32      if_index;
+    nos_uint32      attribute_1;
+    nos_uint32      attribute_2;
+    nos_uint32      attribute_3;
+    nos_uint32      attribute_4;
+    nos_uint32      attribute_5;
+    nos_uint32      attribute_6;
+    nos_uint32      attribute_7;
+    nos_uint32      attribute_8;
+    nos_uint32      attribute_9;
+    nos_uint32      attribute_10;
+    nos_uint32      attribute_11;
+    nos_uint32      attribute_12;
+    nos_uint32      attribute_13;
+    nos_uint32      attribute_14;
+    nos_uint32      attribute_15;
+    nos_uint32      attribute_16;
+} OBJ_CONFIG_SNMP_SCALAR_TABLE_ENTRY;
+
+NOS_DB_HANDLE  *nos_db_init();
+NOS_DB_HANDLE  *nos_db_get_db_handle();
+#ifdef CONFIG_DB_ENABLED
+NOS_DB_HANDLE  *nos_config_db_get_db_handle();
+nos_int32 nos_config_db_check_table_existence ( nos_char *table_name );
+#endif
+
+int nos_db_create_sensor_table(NOS_DB_HANDLE  *p_hndl, NOS_DB_TABLE_ID  table_type);
+
+typedef void (* OBJ_DESC_FUNC_PTR) (OBJ_DESCRIPTION_TABLE_ENTRY *, void *);
+typedef void (* OBJ_DATA_FUNC_PTR) (OBJ_DATA_TABLE_ENTRY *, void *);
+typedef void (* OBJ_CONFIG_SNMP_SCALAR_FUNC_PTR) (OBJ_CONFIG_SNMP_SCALAR_TABLE_ENTRY *, void *);
+
+int nos_db_query_obj_data_table(NOS_DB_HANDLE *p_hndl,
+                                char *sql_statement,
+                                OBJ_DATA_FUNC_PTR func_ptr,
+                                void *p_data);
+
+int nos_config_db_query_obj_data_table(NOS_DB_HANDLE *p_hndl,
+                                       char *sql_statement,
+                                       OBJ_CONFIG_SNMP_SCALAR_FUNC_PTR  func_ptr,
+                                       void *p_data);
+
+int nos_db_insert_to_obj_data_table(NOS_DB_HANDLE  *p_hndl,
+                                          NOS_DB_DML_CMD  cmd,
+                                          OBJ_DATA_TABLE_ENTRY *p_entry);
+
+#endif

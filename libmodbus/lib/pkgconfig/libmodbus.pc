@@ -1,0 +1,10 @@
+prefix=/home/nosdev/nOS_Platform/branches/nOS_REL_2_2/obj/obj-fornax//linux_libs/libmodbus
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: modbus
+Description: Modbus library
+Version: 3.0.6
+Libs: -L${libdir} -lmodbus
+Cflags: -I${includedir}/modbus
