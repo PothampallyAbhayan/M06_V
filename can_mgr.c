@@ -48,6 +48,7 @@ int bit_position(unsigned int);
 void Dynammic_sorting(void);
 int get_adc_avg(int adc_flag, int chn_addr, int chn_no,int *avg_value, int *off_count, int *str_count);
 
+
 #define NO_OF_SBOARDS	    4
 
 /************************ MACRO Definition for first 32 Events ************************/
@@ -401,6 +402,11 @@ unsigned int dry_on_off_flag[6]; // Dry contact on off configuration
 unsigned int  alarm_status = 0; // Alarm status byte
 volatile unsigned char alarm_flag = 0;
 unsigned int   fan_cntr = 0;
+
+unsigned int fan_num;
+unsigned int fan_num_fd; 
+unsigned int fan_bits;
+unsigned char  fannum_buff[10] = {0};
 
 //useful to check time taken
 unsigned int jack;
@@ -777,6 +783,28 @@ int main()
     j=0;
     close(fan_cntr_fd);
 
+	/************************* Fan number file ***************************************/
+
+	fan_num_fd = open("/etc/fan_num",O_RDONLY,S_IRUSR);  
+	if(fan_num_fd == -1)
+	{
+		fan_num_fd = open("/etc/fan_num",O_RDWR|O_CREAT,S_IRUSR);
+		if ( fan_num_fd == -1 )
+		{
+			perror("Error in fan number file open:");
+		} 
+		fan_num = 6;
+		dprintf(fan_num_fd,"%d\n",fan_num);  
+	} 
+	else
+	{
+		read(fan_num_fd,fannum_buff,4);
+		fan_num = atoi(fannum_buff);
+		Data.word.Sys.fan_num = ((0x10B << 16) | (fan_num));
+	}
+	close(fan_num_fd);
+	fan_bits = (1 << fan_num) - 1;
+
 /************************************ END ***********************************************************************************/  
 
 fancalib_flagfd = open("/tmp/fancalib_flag",O_RDONLY,S_IRUSR);
@@ -801,7 +829,7 @@ if(!fancalib_flag)
 	{
 		perror("Error in fan offset file opening:");
 	}
-	for (j = 0; j < 8; j++)
+	for (j = 0; j < fan_num; j++)
 	{
 		//printf("Into file : Fan Offset[%d] :  %d\n",j,z_Offset[j]);
 		dprintf(fan_offsetfd,"%d\n",z_Offset[j]);
@@ -884,17 +912,19 @@ close(fancalib_flagfd);
     }
     else
     {
-    read(dynamic_mappingfd,dynamic_buffer,1500);
-    cptr_dynamic_dummy = strtok(dynamic_buffer,"\n");
-    while(cptr_dynamic_dummy != NULL)
-    {
-      Dynamic_Buffer[j] = atoi(cptr_dynamic_dummy);
-      //printf("Dynamic_Buffer[%d] %d\n",j,Dynamic_Buffer[j]);
-      cptr_dynamic_dummy = strtok(NULL,"\n");
-      j++;
-    }
+		read(dynamic_mappingfd,dynamic_buffer,1500);
+		cptr_dynamic_dummy = strtok(dynamic_buffer,"\n");
+		while(cptr_dynamic_dummy != NULL)
+		{
+		Dynamic_Buffer[j] = atoi(cptr_dynamic_dummy);
+		//printf("Dynamic_Buffer[%d] %d\n",j,Dynamic_Buffer[j]);
+		cptr_dynamic_dummy = strtok(NULL,"\n");
+		j++;
+		}
     }
     close(dynamic_mappingfd);  
+
+
 
 /*********************** NTP file *****************************************/
 
@@ -1176,12 +1206,12 @@ close(fancalib_flagfd);
   
   
   /***************** creating a new /etc/kwhdata file if it doesn't exit ************/
-  
-  int result_kwh;
-  int kwhdata_check_fd;
-  int kwhdata_fd;
-  int kwh_fd;
-  int kwhtxt_fd;
+
+	int result_kwh;
+	int kwhdata_check_fd;
+	int kwhdata_fd;
+	int kwh_fd;
+	int kwhtxt_fd;
 
     kwhdata_fd = open("/etc/kwhvaldata",O_RDONLY,S_IRUSR);
 	if(kwhdata_fd == -1)
@@ -1885,7 +1915,7 @@ void *handler_func (void *ctx )
 	    if ( FD_ISSET(thread_ctx.sock_adc,&temp_RD_fd) ) 
 	    {
 		  read(fd1[0], &status_result, 4); 
-		  Data.word.System_Status.Fan_status = (unsigned short) ((status_result) & 0x00ff);  
+		  Data.word.System_Status.Fan_status = (unsigned short) ((status_result) & fan_bits);  //0x00ff changes to fan bits
                   
 			if (no_xfmr)
 			{
@@ -6839,7 +6869,7 @@ static void icos_test_adc(int addr, int channel)
 
 
 		//Checks for Fan failure for all the 8 fans considering 10 samples of each at a time
-		for(i = 0;i < 8;i++)
+		for(i = 0;i < fan_num;i++)
 		{
 			adc_flag = 1;
 			fan_alarm = 0x00000001 << i;
@@ -6875,7 +6905,7 @@ static void icos_test_adc(int addr, int channel)
 int get_fan_offset(void)
 {
 	int i, count, s_count;
-	for(i = 0; i < 8;i++)
+	for(i = 0; i < fan_num;i++)
 	{
 		adc_flag = 0;
 		get_adc_avg(adc_flag, chn_address[i],chn_number[i],&z_Offset[i], &count, &s_count);
