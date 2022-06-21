@@ -15,10 +15,10 @@
 #include<math.h>
 #include"unistd.h"
 #include <sys/time.h> //753
-
 #include "nos_i2c.h"
 
-/*****************Extern variables***********************************************/
+/*************************** Extern variables ***************************/
+
 extern sensor_PKT  *sensor_Rx_pkt_pool_hdr ;
 extern sensor_PKT  *sensor_Tx_pkt_pool_hdr ;
 extern sensor_PKT  *sensor_Rx_pkt_hdr ;
@@ -30,15 +30,18 @@ extern EE_DATA_UNION	Data_In;
 extern EE_SYS_INFO_UNION	wSysInfo;
 extern Can_data	Data;
 extern SYSTEM_STATUS_UPDATE	System_Status;
-/*****************Extern functions**********************************************/
+
+/*************************** Extern functions ***************************/
+
 extern void *bacnet_handler(void *ctx);
 extern void Analog_Input_Present_Value_Set(uint32_t ,float );
-/******************Function declaration*****************************************/
+
+/************************ Function declaration ************************/
 
 void create_db_field(NOS_DB_HANDLE  *,int );
 void DB_entry_creation_for(unsigned int ,unsigned int,unsigned short,NOS_DB_HANDLE* );
 void System_Status_Update(void);
-void* BAC_update(void *);//Defined in bacmain.c
+void* BAC_update(void *); //Defined in bacmain.c
 void ADC_process(void);
 void config_process(void);
 void event_process(void);
@@ -48,10 +51,11 @@ int bit_position(unsigned int);
 void Dynammic_sorting(void);
 int get_adc_avg(int adc_flag, int chn_addr, int chn_no,int *avg_value, int *off_count, int *str_count);
 
+/******************************** MACRO DEFINITIONS ********************************/
 
 #define NO_OF_SBOARDS	    4
 
-/************************ MACRO Definition for first 32 Events ************************/
+/********************** MACRO Definition for first 32 Events **********************/
 
 #define IP_UNDER_VOLTAGE            0
 
@@ -101,17 +105,19 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no,int *avg_value, int *off_
 
 #define GROUND_CURRENT  AMBIENT_TEMP + 1
 
-/*************************** MACRO defenition ***************************/
+/************************** MACRO for temp shared memory **************************/
 
 #define MBUS_IF_INDEX_OFFSET               0x7000
 #define FILEPATH "/tmp/data"
 #define NUMINTS (5000)
 #define FILESIZE (NUMINTS* sizeof(int))
 
-/*********************************** MACRO FOR NV COPY ***********************************/
+/******************************* MACRO FOR NV COPY *******************************/
 
 #define DB_FIELD  1
+
 #define SHM_FIELD 2
+
 #define FIELD_TOTALENTRY 2500      
 
 #define PRIMARY_OFFSET	   (sizeof(PRI_STRUCTURE_PARAMETER)/4)
@@ -123,9 +129,6 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no,int *avg_value, int *off_
 #define SYS_NV             (sizeof(EE_SYS_INFO)/4) + STATUS_UPDATE
 
 #define FW_VERSION0        (sizeof(FIRMWARE_VERSION_STRUCTURE)/4) + SYS_NV
-//#define FW_VERSION1        (sizeof(FIRMWARE_VERSION_STRUCTURE)/4) + FW_VERSION0
-//#define FW_VERSION2        (sizeof(FIRMWARE_VERSION_STRUCTURE)/4) + FW_VERSION1
-//#define FW_VERSION3        (sizeof(FIRMWARE_VERSION_STRUCTURE)/4) + FW_VERSION2
 
 #define SYSTEMPARAMETER	      (sizeof(SYS_STRUCTURE_PARAMETER)/4) + FW_VERSION0
 
@@ -139,7 +142,6 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no,int *avg_value, int *off_
 #define LOAD1_OFFSET	(sizeof(DSP_PANEL_PARAMETER)/4) + LOAD0_OFFSET 
 
 #define PANEL11_UNDERCURR_FLAG 	(sizeof(CT_CURRENT_STATUS_FLAG)/4) + LOAD1_OFFSET
-
 #define PANEL12_UNDERCURR_FLAG  (sizeof(CT_CURRENT_STATUS_FLAG)/4) + PANEL11_UNDERCURR_FLAG
 #define PANEL13_UNDERCURR_FLAG  (sizeof(CT_CURRENT_STATUS_FLAG)/4) + PANEL12_UNDERCURR_FLAG
 #define PANEL14_UNDERCURR_FLAG  (sizeof(CT_CURRENT_STATUS_FLAG)/4) + PANEL13_UNDERCURR_FLAG
@@ -182,10 +184,15 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no,int *avg_value, int *off_
 #define MAX_CURR_DEMAND1       (sizeof(DSP_PANEL_PARAMETER)/4) + MAX_CURR_DEMAND0
 
 #define MAX_KW_DEMAND0	       (sizeof(DSP_PANEL_PARAMETER)/4) + MAX_CURR_DEMAND1
-#define MAX_KW_DEMAND1         (sizeof(DSP_PANEL_PARAMETER)/4 + MAX_KW_DEMAND0)	 	       
+#define MAX_KW_DEMAND1         (sizeof(DSP_PANEL_PARAMETER)/4 + MAX_KW_DEMAND0)	 
+
+#define KWH_P_OFFSET         MAX_KW_DEMAND1 + 1
+#define KWH_S_OFFSET         KWH_P_OFFSET + 3
+#define KWH_B1_OFFSET        KWH_S_OFFSET + 84
+#define KWH_B2_OFFSET        KWH_B1_OFFSET + 84 
 	
 
-/*********************************** MACRO FOR CAN***********************************/
+/*************************** MACRO FOR CAN ***************************/
 
 #define PRI_OFFSET	(sizeof(PRI_STRUCTURE_PARAMETER)/4)
 #define SEC_OFFSET      ((sizeof(SEC_STRUCTURE_PARAMETER)/4) + PRI_OFFSET)
@@ -243,7 +250,6 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no,int *avg_value, int *off_
 #define CT_MAX_KW_DEMAND_24HR_3  ((sizeof(DSP_PANEL_PARAMETER)/4) + CT_MAX_KW_DEMAND_24HR_2)
 
 #define PRI_STATUS_FLAG		 ((sizeof(CT_CURRENT_STATUS_FLAG)/4) + CT_MAX_KW_DEMAND_24HR_3)
-
 #define SEC_STATUS_FLAG		 ((sizeof(CT_CURRENT_STATUS_FLAG)/4) + PRI_STATUS_FLAG)
 
 #define PANEL11_UNDERCURR_STATUS_FLAG ((sizeof(CT_CURRENT_STATUS_FLAG)/4) + SEC_STATUS_FLAG)
@@ -283,7 +289,7 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no,int *avg_value, int *off_
 
 #define NO_OF_PANLES 2
 
-/********************************** Macro for mmap **********************************/
+/********************************** MACRO for mmap **********************************/
 
 #define KWH_PRIMARY 0
 #define KWH_SECONDARY KWH_PRIMARY + 2
@@ -298,7 +304,7 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no,int *avg_value, int *off_
 #define KWHTOTAL 518
 #define FILESIZE_KWHDATA  (KWHTOTAL* sizeof(int))
 
-/********************************** Typedefs **********************************/
+/********************************** TYPEDEFS **********************************/
 
 typedef enum _modbus_reg_type_ {
 
@@ -311,10 +317,11 @@ typedef enum _modbus_reg_type_ {
 } MODBUS_REG_TYPE;
 
 typedef union _mod_data
-    {
-      icos_int16 data;
-      icos_uchar cdata[2];
-    }mod_data;
+{
+	icos_int16 data;
+	icos_uchar cdata[2];
+}mod_data;
+
 typedef union _data_union
 {
     unsigned char data[2];
@@ -330,7 +337,6 @@ typedef struct _Temp_Reg
     unsigned char   reg_flag;	
 }Temp_Reg; 
 
-
 typedef union _fan_status{
   unsigned char fan_err_status_array[12];
   unsigned short fan_err_status_dummy;
@@ -345,7 +351,6 @@ volatile static icos_uint32 if_index_start = MBUS_IF_INDEX_OFFSET;
  
 /********************************** Global variables **********************************/
 
-//extern int    uart_fd;                                       // Used for Uart communication
 struct termios SerialPortSettings;                    // POSIX Terminal Definitions 
 unsigned short SBoard1[PANEL_GAIN];
 unsigned short SBoard2[PANEL_GAIN];
@@ -461,7 +466,7 @@ unsigned int dwPriDevPhaseBC;
 unsigned int dwPriDevPhaseCA;
 unsigned int dwSecVoltAvg;
 unsigned int dwPriVoltAvg;
-unsigned int wPhaseA_Board_I_PanelCurrent[12];                 // Added for Panel OL Alarm // Date : 17/04/2020
+unsigned int wPhaseA_Board_I_PanelCurrent[12];  // Added for Panel OL Alarm // Date : 17/04/2020
 unsigned int wPhaseB_Board_I_PanelCurrent[12];
 unsigned int wPhaseC_Board_I_PanelCurrent[12];
 unsigned int wPhaseA_PanelCurrent[3];
@@ -540,7 +545,7 @@ unsigned char wMboard_Fw_Ver[16] = {'M','-','0','S','T','T',' ',' ',' ',' ',' ',
 pthread_t bacnet_thread;
 pthread_t update_thread;
 
-/**************************** Stack support variables and functions ****************************/
+/*************************** Stack support variables and functions ****************************/
 
 //NOS_DB_HANDLE         *p_db = NULL;//DK removed
 NOS_DB_HANDLE         *p_db1 = NULL;
@@ -615,8 +620,6 @@ int main()
     int     shmid;
     
     //7539
-    epochtime_cntr = 1500;
-    jack = 0;
 
     /******************  UART PORT Opening & Initialisation ********************/
     uart_fd = open("/dev/ttymxc2",O_RDWR | O_NOCTTY);
@@ -644,10 +647,12 @@ int main()
     //close(uart_fd);
     /******************** END *********************************/
 
+	/*
 	printf("Checking the timer\n");
 	system("echo start >> /home/root/date.txt");
 	system("date >> /home/root/date.txt");
 	system("date");
+	*/
     
 //for ip Address reading
 	FILE *ip_fp;
@@ -719,13 +724,10 @@ int main()
     usleep(100);
     icos_io_init(0,0x22);                              // For Alarm
 
-    //printf("\n*******Init finished*****\n");
-
     icos_io_set_direction(0,0x43,0x3F,0x00);       // 0011 1111   ('0' for input(DRYA,DRYB,DRYC,DRYD,DRYE,DRYF) and '1' for output(REPO and EPO))
-    
     usleep(100);
     icos_io_set_direction(0,0x44,0x04,0x00);	   // 0000 0100   ('0' for input (TEMP_RT1,TEMP_RT2,Aux_Power_Fail,ZCD,CBSTAT_M,CBSTAT_P1) and '1' for output (Fan_PWM))
-    //printf("\n*******set2 finished*****\n");
+
     usleep(100);
     usleep(100);
     buzz_cmd = 0x00;
@@ -739,6 +741,9 @@ int main()
     usleep(100);
     
 /**********************ADC Initialisation****************/
+
+	jack = KWH_B2_OFFSET;
+	printf("JACK = %d\n",jack);
     
     usleep(200);
     printf("\nADC channels opened and Initialised\n");
@@ -870,16 +875,14 @@ close(fancalib_flagfd);
 	read(ntp_fd,ntpflag_buffer,4);
 	ntpsync_flag = atoi(ntpflag_buffer);
 
-/************* End **************************************************/
+	if(ntpsync_flag)
+	{
+		epochtime_cntr = 1500;
+		jack = 0;
+	}
+	close(ntp_fd);
 
-#if 0
-  for (j = 0; j<12; j++)   //12345
-  {
-  fan_err_cntr[j] = 0;
-  fan_no_err_cntr[j] = 0;
-  }
-  j=0;
-#endif
+/************* End **************************************************/
 
 /***********************PWM Initialisation****************/
     #if 1
@@ -922,8 +925,7 @@ close(fancalib_flagfd);
 		j++;
 		}
     }
-    close(dynamic_mappingfd);  
-
+    close(dynamic_mappingfd); 
 
 
 /*********************** NTP file *****************************************/
@@ -932,28 +934,29 @@ close(fancalib_flagfd);
 	ntpserverfd = open("/etc/ntp_server",O_RDONLY,S_IRUSR);
     if (ntpserverfd == -1)
     {
-      ntpserverfd = open("/etc/ntp_server",O_RDWR|O_CREAT,S_IRUSR);
-      if (ntpserverfd == -1)
-      {
-		 perror("Error in ntp_server opening:");
-      }
-      dprintf(ntpserverfd,"/usr/sbin/ntpdate 10.152.156.1\n");
+		ntpserverfd = open("/etc/ntp_server",O_RDWR|O_CREAT,S_IRUSR);
+		if (ntpserverfd == -1)
+		{
+			perror("Error in ntp_server opening:");
+		}
+		dprintf(ntpserverfd,"/usr/sbin/ntpdate 10.152.156.1\n");
     }
     else
     {
-    read(ntpserverfd,ntp_buffer,40);
-    cptr_ntp_dummy = strtok(ntp_bufferr,"\n");
-    while(cptr_dynamic_dummy != NULL)
-    {
 		read(ntpserverfd,ntp_buffer,40);
-		cptr_ntp_dummy = strtok(ntpbuffer,"\n");
-		strcpy(ntp_ip,ntpbuffer);
-		cptr_ntp_dummy = strtok(NULL,"\n");
-		strcpy(ntp_port,cptr_ntp_dummy);
-    }
+		cptr_ntp_dummy = strtok(ntp_bufferr,"\n");
+		while(cptr_dynamic_dummy != NULL)
+		{
+			read(ntpserverfd,ntp_buffer,40);
+			cptr_ntp_dummy = strtok(ntpbuffer,"\n");
+			strcpy(ntp_ip,ntpbuffer);
+			cptr_ntp_dummy = strtok(NULL,"\n");
+			strcpy(ntp_port,cptr_ntp_dummy);
+		}
     }
     close(ntpserverfd); 
-	*/
+*/
+
 /************* End **************************************************/
 
 
@@ -1202,6 +1205,21 @@ close(fancalib_flagfd);
     printf("\nIPAdress2 : %x\n",Data.word.Sys.IPAddress[1]);
     Data_nv.word.Sys.IPAddress[0] = ((0x136 << 16 ) | (*sip_ptr));
     Reg[STATUS_UPDATE + 54].reg_d.reg_value = (Data.word.Sys.IPAddress[1] & 0x0000FFFF);
+
+	printf("before printing\n");
+
+/*
+	unsigned char bytes[4];
+	bytes[0]= *sip_ptr & 0xFF;
+	bytes[1]=(*sip_ptr >> 8) & 0xFF;
+	
+	bytes[2]=(*sip_ptr >> 16) & 0xFF;
+	bytes[3]=(*sip_ptr >> 24) & 0xFF;
+	printf("IP Address : %d.%d.%d.%d\n",bytes[2],bytes[3],bytes[0],bytes[1]);
+
+	printf("After printing\n");
+	*/
+
   /*********************END*****************/ 
   
   
@@ -1910,7 +1928,8 @@ void *handler_func (void *ctx )
 	  {
 	    printf("no fd set\n");
 	    continue;
-	  } else
+	  } 
+	  else
 	  {
 	    if ( FD_ISSET(thread_ctx.sock_adc,&temp_RD_fd) ) 
 	    {
@@ -2502,7 +2521,12 @@ void timerHandler( int sig, siginfo_t *si, void *uc )
 		sFlag.pnl2_demand_chk_24hr = 1;
 		sFlag.pnl3_demand_chk_24hr = 1;
 		sFlag.pnl4_demand_chk_24hr = 1;
-		epochtime_cntr = 1500;
+
+		if(ntpsync_flag)
+		{
+			epochtime_cntr = 1500;
+		}
+
 		wDemandChkCntr24hr_10ms = 0;
 	  }
 	  settimer(&fourthTimerID,0,10);
@@ -2533,11 +2557,8 @@ void timerHandler( int sig, siginfo_t *si, void *uc )
 	{
 	  cleartimer(&eighthTimerID);
 	  //counter for sending epochtime flag as 1
-	  epochtime_cntr = 1500;
-	  printf("Checking the timer\n");
-	  system("echo stop >> /home/root/date.txt");
-	  system("date >> /home/root/date.txt");
-	  system("date");
+	  if(ntpsync_flag)
+	  	epochtime_cntr = 1500;
 	}
 	
 	
@@ -2659,6 +2680,7 @@ int init_timer_routine(timer_t *timerID)
 	}
 	return 0;
 }
+
 unsigned int set_address(void )
 {
 	unsigned int loop;
@@ -2674,7 +2696,8 @@ unsigned int set_address(void )
 	unsigned short dummy_parameter_offset = 0;
 	unsigned short parameter_data =0;
 	unsigned int result = 0;
-        static unsigned int panel_ctr = 0;
+	unsigned int kVA_sqr, kW_sqr; //753
+    static unsigned int panel_ctr = 0;
 
 	iptr = Data.array;
 
@@ -2784,6 +2807,13 @@ unsigned int set_address(void )
 		if ( paraID == DSP_PRIMARY_HI_ADDR)
 		{
 		  *(iptr + Offset) = result;
+
+		  //
+		  kVA_sqr = (unsigned long)(Data.word.Primary.KVA & 0xFFFF) * (unsigned long)(Data.word.Primary.KVA & 0xFFFF);
+		  kW_sqr = (unsigned long)(Data.word.Primary.KW & 0xFFFF) * (unsigned long)(Data.word.Primary.KW & 0xFFFF);
+		  Data.word.Primary.KVAR = (0x817<<16)|((unsigned int)sqrt(((unsigned long)kVA_sqr - (unsigned long)kW_sqr)) & 0xFFFF);
+		  //753
+
 		  *(map + Offset) = (result & 0x0000FFFF);
 		  
 		  Reg[Offset].reg_d.reg_value = (result & 0x0000FFFF);
@@ -2921,7 +2951,8 @@ void transmit_pkt(void )
 	char write_buffer[] = "A";
 	struct can_frame temp_frame;
 	struct can_frame *temp_ptr = &temp_frame;
-	
+	unsigned char buzzer_stat;
+
 	/*******Sending Epochtime***********************************************************************///3216212 Aswin Krishna(16/11/21)
 
 	epochtime = (unsigned int)time(NULL);  
@@ -2955,21 +2986,20 @@ void transmit_pkt(void )
 	
 	//printf("Epochtime flag : %d\n",epochtime_flag);
 	//printf("Epochtime counter : %d\n",epochtime_cntr);
-
-
 	Data.word.Sys.wEpochtimeL = ((0x10C << 16) | (epochtime & 0xFFFF));            
     Data.word.Sys.wEpochtimeH = ((0x10D << 16) | ((epochtime>>16) & 0xFFFF));       
     Data.word.Sys.wEpochtime_flag = ((0x10E << 16 ) | epochtime_flag);
     
     /**********Sending buzzer status*******************************************************************///
-    #if 0
+   
     nos_i2c_read(0, 0x22, 0x02, &buzzer_stat, 4);
 	buzzer_stat = (buzzer_stat >> 3) & 0x01;
-	Data.word.Sys.wbuzzer_stat = ((0x10F << 16) | ((buzzer_stat & 0x0F) | ((buzz_status << 4) & 0xF0)));
+	Data.word.Sys.buzzer_stat = ((0x10F << 16) | ((buzzer_stat & 0x0F) | ((buzz_status << 4) & 0xF0)));
  
 
 	/************** Checking the time between each transmission **************/
 	//753
+	#if 0
 
 	if(jack == 1)
 	{
@@ -5308,6 +5338,8 @@ void KWH_Calc(unsigned int reg)
 
 	    if (kw_dwCalcBuff[0].all > 999999999)
 		  kw_dwCalcBuff[0].all -= 999999999;
+
+		*(map + MAX_KW_DEMAND1) = kw_dwCalcBuff[0].all;
 		
 		pthread_mutex_lock(&kw_lock1);
 		Data.word.Primary.KWH_Lo = (0x080A0000 | kw_dwCalcBuff[0].word[0]);
@@ -5367,6 +5399,8 @@ void KWH_Calc(unsigned int reg)
 
 		if (kw_dwCalcBuff[1].all > 999999999)
 		  kw_dwCalcBuff[1].all -= 999999999;
+
+		*(map + KWH_P_OFFSET) = kw_dwCalcBuff[1].all;
 		
 		pthread_mutex_lock(&kw_lock1);
 		Data.word.Secondary.KWH_Phase_A_Lo = (0x090A0000 | kw_dwCalcBuff[1].word[0]);
@@ -5424,6 +5458,8 @@ void KWH_Calc(unsigned int reg)
 
 		if (kw_dwCalcBuff[2].all > 999999999)
 		  kw_dwCalcBuff[2].all -= 999999999;
+
+		*(map + KWH_P_OFFSET + 1) = kw_dwCalcBuff[2].all;
 		
 		pthread_mutex_lock(&kw_lock1);
 		Data.word.Secondary.KWH_Phase_B_Lo = (0x090C0000 | kw_dwCalcBuff[2].word[0]);
@@ -5481,6 +5517,8 @@ void KWH_Calc(unsigned int reg)
 
 		if (kw_dwCalcBuff[3].all > 999999999)
 		  kw_dwCalcBuff[3].all -= 999999999;
+
+		*(map + KWH_P_OFFSET + 2) = kw_dwCalcBuff[3].all;
 		
 		pthread_mutex_lock(&kw_lock1);
 		Data.word.Secondary.KWH_Phase_C_Lo = (0x090E0000 | kw_dwCalcBuff[3].word[0]);
@@ -5544,6 +5582,8 @@ void KWH_Calc(unsigned int reg)
 
 			if (kw_dwCalcBuff[4].all > 999999999)
 				kw_dwCalcBuff[4].all -= 999999999;
+
+			*(map + KWH_S_OFFSET + i) = kw_dwCalcBuff[4].all;
 			
 			pthread_mutex_lock(&kw_lock1);
 			Data.array[PANEL24_OVERCURR_STATUS_FLAG + (i*2)] = ((((0x2D00|(i*2))|(0<<14))<<16) | kw_dwCalcBuff[4].word[0]);
@@ -5599,6 +5639,8 @@ void KWH_Calc(unsigned int reg)
 
 			if (kw_dwCalcBuff[5].all > 999999999)
 				kw_dwCalcBuff[5].all -= 999999999;
+
+			*(map + KWH_B1_OFFSET + i) = kw_dwCalcBuff[5].all;
 			
 			pthread_mutex_lock(&kw_lock1);
 			Data.array[KWH_0_OFFSET + (i*2)] = ((((0x2D00|(i*2))|(1<<14))<<16) | kw_dwCalcBuff[5].word[0]);
@@ -5657,8 +5699,6 @@ void System_Status_Update(void)
 	dwPriDevPhaseAB = ((Data.word.Primary.L2L_Volt_Phase_AB & 0x0000FFFF) > (Data.word.Primary.L2L_Volt_Phase_BC & 0x0000FFFF))?((Data.word.Primary.L2L_Volt_Phase_AB & 0x0000FFFF) - (Data.word.Primary.L2L_Volt_Phase_BC & 0x0000FFFF)):((Data.word.Primary.L2L_Volt_Phase_BC & 0x0000FFFF) - (Data.word.Primary.L2L_Volt_Phase_AB & 0x0000FFFF));
 	dwPriDevPhaseBC = ((Data.word.Primary.L2L_Volt_Phase_BC & 0x0000FFFF) > (Data.word.Primary.L2L_Volt_Phase_CA & 0x0000FFFF))?((Data.word.Primary.L2L_Volt_Phase_BC & 0x0000FFFF) - (Data.word.Primary.L2L_Volt_Phase_CA & 0x0000FFFF)):((Data.word.Primary.L2L_Volt_Phase_CA & 0x0000FFFF) - (Data.word.Primary.L2L_Volt_Phase_BC & 0x0000FFFF));
 	dwPriDevPhaseCA = ((Data.word.Primary.L2L_Volt_Phase_CA & 0x0000FFFF) > (Data.word.Primary.L2L_Volt_Phase_AB & 0x0000FFFF))?((Data.word.Primary.L2L_Volt_Phase_CA & 0x0000FFFF) - (Data.word.Primary.L2L_Volt_Phase_AB & 0x0000FFFF)):((Data.word.Primary.L2L_Volt_Phase_AB & 0x0000FFFF) - (Data.word.Primary.L2L_Volt_Phase_CA & 0x0000FFFF));
-
-
 		
 	nos_i2c_read(0, 0x43, P14I0EE5V6408_GPIO_EXPANDER_INPUT_STATUS_REG, &dummy_char, 1);
 	Data.word.System_Status.EPO = (dummy_char >> 6);
@@ -6477,355 +6517,6 @@ void ADC_process(void)
 	icos_test_adc(bus, channel);
 }
 
-#if 0
-static void icos_test_adc(int addr, int channel)
-{
-	nos_uint16    data = 0;
-	nos_uint16    data1 = 0;
-	nos_uint16	  data2 = 0;
-	nos_uint16    data3 = 0;
-	nos_uint16    result = 0;
-	nos_uint16    temperature = 0;
-	nos_uint32    temp_and_err_status = 0;
-	unsigned char chn_no,chn_addr,i;
-	unsigned short Offset = 12950;
-	unsigned short temp;
-	static unsigned char count = 0;
-	sleep(1);
-	chn_no = 0;
-	chn_addr = 0x48;
-	while(1) 
-	{
-	  switch (chn_addr)
-	  {
-		case 0x48: 
-
-		  icos_adc_read_channel(1,
-		              chn_addr,
-		              chn_no,
-		              &data,100);
-		  if (data > Offset)
-			temp = (data - Offset);
-		  else
-		  {
-			temp = (data - Offset);
-			temp = (~temp) + 1;
-		  }
-	  
-	  	  AdcFanCurrent.array[(chn_addr - 0x48)*4 + chn_no] += (unsigned long long)(temp*temp);
-	  
-
-	  	  chn_addr++;
-	  
-		  break;
-		case 0x49:
-	    
-	      icos_adc_read_channel(1,
-                              chn_addr,
-                              chn_no,
-                              &data1,100);
-		  if (data1 > Offset)
-			 temp = (data1 - Offset);
-		  else
-		  {
-		    temp = (data1 - Offset);
-			temp = (~temp) + 1;
-		  }
-          
-	 
-		  AdcFanCurrent.array[(chn_addr - 0x48)*4 + chn_no] += (unsigned long long)(temp*temp);
-
-
-		  chn_addr++;
-		
-		  break;
-	    case 0x4A:
-	 
-		  icos_adc_read_channel(1,
-		  chn_addr,
-		  chn_no,
-		  &data2,100);
-		  if (chn_no != 1)
-		  {
-		    if (data2 > Offset)
-			  temp = (data2 - Offset);
-			else
-			{
-			  temp = (data2 - Offset);
-			  temp = (~temp) + 1;
-			}
-		  }
-		  else
-			temperature_status = data2;
-
-		  chn_addr++;
-		  break;
-	    case 0x4B:
-	 
-		  icos_adc_read_channel(1,
-		  chn_addr,
-		  chn_no,
-		  &data3,100);
-		  if (data3 > Offset)
-			temp = (data3 - Offset);
-		  else
-		  {
-			temp = (data3 - Offset);
-			temp = (~temp) + 1;
-		  }
-
-		  AdcFanCurrent.array[((chn_addr - 1) - 0x48)*4 + chn_no] += (unsigned long long)(temp*temp);
-
-		  chn_addr = 0x48;
-		  chn_no++;
-		  if (chn_no > 3)
-		  {
-			chn_addr = 0x48;
-			chn_no = 0;
-			Fan_cntr++;
-		  }
-		  break;
-		default :
-		  break;
-	  }
-	  if (Fan_cntr == NUM_ADC_SAMPLES)
-	  {
-		strFanParameter.word.dwFan1_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan1_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan2_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan2_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan3_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan3_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan4_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan4_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan5_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan5_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan6_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan6_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan7_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan7_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan8_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan8_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan9_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan9_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan10_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan10_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan11_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan11_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan12_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan12_current_sum) / NUM_ADC_SAMPLES))*100;
-		AdcFanCurrent.word.dwFan1_current_sum = 0;
-		AdcFanCurrent.word.dwFan2_current_sum = 0;
-		AdcFanCurrent.word.dwFan3_current_sum = 0;
-		AdcFanCurrent.word.dwFan4_current_sum = 0;
-		AdcFanCurrent.word.dwFan5_current_sum = 0;
-		AdcFanCurrent.word.dwFan6_current_sum = 0;
-		AdcFanCurrent.word.dwFan7_current_sum = 0;
-		AdcFanCurrent.word.dwFan8_current_sum = 0;
-		AdcFanCurrent.word.dwFan9_current_sum = 0;
-		AdcFanCurrent.word.dwFan10_current_sum = 0;
-		AdcFanCurrent.word.dwFan11_current_sum = 0;
-		AdcFanCurrent.word.dwFan12_current_sum = 0;
-		Fan_cntr = 0;
-	  }
-	  for (i=0; i<12; i++)
-	  {
-		fan_alarm = 0x00000001 << i;
-
-		if((strFanParameter.array[i] < 0x2000))
-		{
-		  fan_err_status |= fan_alarm;
-		}
-	  	else
-		{
-		  fan_err_status &= (~fan_alarm);
-		}
-	  }
-      temp_and_err_status = ((unsigned int)(temperature_status << 16)|fan_err_status);
-      write(fd1[1], &temp_and_err_status, 4); 
-      usleep(10);
-    }
-}
-
-
-static void icos_test_adc(int addr, int channel)
-{
-	nos_uint16    data = 0;
-	nos_uint16    data1 = 0;
-	nos_uint16	  data2 = 0;
-	nos_uint16    data3 = 0;
-	nos_uint16    result = 0;
-	nos_uint16    temperature = 0;
-	nos_uint32    temp_and_err_status = 0;
-	unsigned char chn_no,chn_addr,i;
-	unsigned short Offset = 12950;
-	unsigned short temp;
-	static unsigned char count = 0;
-	sleep(1);
-	chn_no = 0;
-	chn_addr = 0x48;
-	while(1) 
-	{
-	  switch (chn_addr)
-	  {
-		case 0x48: 
-
-		  icos_adc_read_channel(1,
-		              chn_addr,
-		              chn_no,
-		              &data,100);
-                  //printf("\nChn_addr: %x\nChn_no: %x\nData : %x\n",chn_addr,chn_no,data);
-		  if (data > Offset)
-			temp = (data - Offset);
-		  else
-		  {
-			temp = (data - Offset);
-			temp = (~temp) + 1;
-		  }
-	  
-	  	  //AdcFanCurrent.array[(chn_addr - 0x48)*4 + chn_no] += (unsigned long long)(temp*temp);
-	          AdcFanCurrent.array[(chn_addr - 0x48)*4 + chn_no] = temp;
-
-	  	  chn_addr++;
-	  
-		  break;
-		case 0x49:
-	    
-	      icos_adc_read_channel(1,
-                              chn_addr,
-                              chn_no,
-                              &data1,100);
-		  //printf("\nChn_addr: %x\nChn_no: %x\nData : %x\n",chn_addr,chn_no,data1);
-		  if (data1 > Offset)
-			 temp = (data1 - Offset);
-		  else
-		  {
-		    temp = (data1 - Offset);
-			temp = (~temp) + 1;
-		  }
-          
-	 
-		  //AdcFanCurrent.array[(chn_addr - 0x48)*4 + chn_no] += (unsigned long long)(temp*temp);
-                  AdcFanCurrent.array[(chn_addr - 0x48)*4 + chn_no] = temp;
-
-		  chn_addr++;
-		
-		  break;
-	    case 0x4A:
-	 
-		  icos_adc_read_channel(1,
-		  chn_addr,
-		  chn_no,
-		  &data2,100);
-		  if (chn_no != 1)
-		  {
-		    //printf("\nChn_addr: %x\nChn_no: %x\nData : %x\n",chn_addr,chn_no,data2);
-		    if (data2 > Offset)
-			  temp = (data2 - Offset);
-			else
-			{
-			  temp = (data2 - Offset);
-			  temp = (~temp) + 1;
-			}
-		  }
-		  else
-			temperature_status = data2;
-
-		  chn_addr++;
-		  break;
-	    case 0x4B:
-	 
-		  icos_adc_read_channel(1,
-		  chn_addr,
-		  chn_no,
-		  &data3,100);
-		  //printf("\nChn_addr: %x\nChn_no: %x\nData : %x\n",chn_addr,chn_no,data3);
-		  if (data3 > Offset)
-			temp = (data3 - Offset);
-		  else
-		  {
-			temp = (data3 - Offset);
-			temp = (~temp) + 1;
-		  }
-
-		  //AdcFanCurrent.array[((chn_addr - 1) - 0x48)*4 + chn_no] += (unsigned long long)(temp*temp);
-                  AdcFanCurrent.array[((chn_addr - 1) - 0x48)*4 + chn_no] = temp;
-
-		  chn_addr = 0x48;
-		  chn_no++;
-		  if (chn_no > 3)
-		  {
-			chn_addr = 0x48;
-			chn_no = 0;
-			Fan_cntr++;
-		  }
-		  break;
-		default :
-		  break;
-	  }
-	  /*if (Fan_cntr == NUM_ADC_SAMPLES)
-	  {
-		strFanParameter.word.dwFan1_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan1_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan2_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan2_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan3_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan3_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan4_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan4_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan5_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan5_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan6_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan6_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan7_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan7_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan8_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan8_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan9_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan9_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan10_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan10_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan11_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan11_current_sum) / NUM_ADC_SAMPLES))*100;
-		strFanParameter.word.dwFan12_current_sum_out = (unsigned int)sqrt(((AdcFanCurrent.word.dwFan12_current_sum) / NUM_ADC_SAMPLES))*100;
-		AdcFanCurrent.word.dwFan1_current_sum = 0;
-		AdcFanCurrent.word.dwFan2_current_sum = 0;
-		AdcFanCurrent.word.dwFan3_current_sum = 0;
-		AdcFanCurrent.word.dwFan4_current_sum = 0;
-		AdcFanCurrent.word.dwFan5_current_sum = 0;
-		AdcFanCurrent.word.dwFan6_current_sum = 0;
-		AdcFanCurrent.word.dwFan7_current_sum = 0;
-		AdcFanCurrent.word.dwFan8_current_sum = 0;
-		AdcFanCurrent.word.dwFan9_current_sum = 0;
-		AdcFanCurrent.word.dwFan10_current_sum = 0;
-		AdcFanCurrent.word.dwFan11_current_sum = 0;
-		AdcFanCurrent.word.dwFan12_current_sum = 0;
-		Fan_cntr = 0;
-	  }*/
-	  AdcFanCurrent.array[5] = AdcFanCurrent.array[9];  //3216212 added for fan issue
-
-	  for (i=0; i<12; i++)
-	  {
-		fan_alarm = 0x00000001 << i;
-
-                //printf("\nOffset for fan %d : %d\n",i,AdcFanCurrent.array[i]);
-
-		if((AdcFanCurrent.array[i] < fan_cntr_Parameters[0]))
-		{
-			if(fan_no_err_cntr[i] > 0)
-			{
-			    fan_no_err_cntr[i] = 0;	
-			}
-			else
-			{
-				fan_err_cntr[i]++;
-				if(fan_err_cntr[i] > fan_cntr_Parameters[1])
-				{
-					fan_err_status |= fan_alarm;	
-				}
-			}
-		}
-	  	else
-		{
-			if(fan_err_cntr[i] > 0)
-			{
-				fan_err_cntr[i] = 0;
-			}
-			else
-			{
-				fan_no_err_cntr[i]++;
-				if(fan_no_err_cntr[i] > fan_cntr_Parameters[2])
-				{
-		    		fan_err_status &= (~fan_alarm);
-				}
-		    }
-		}
-	  }
-      temp_and_err_status = ((unsigned int)(temperature_status << 16)|fan_err_status);
-      write(fd1[1], &temp_and_err_status, 4); 
-      system("sleep 0.1s");//DK changed form 0.01 to 0.1 need to fine tune it
-    }
-}
-#endif
-
-
 static void icos_test_adc(int addr, int channel)
 {
   nos_uint16    temp_data = 0;
@@ -6860,6 +6551,7 @@ static void icos_test_adc(int addr, int channel)
 		//system("sleep 0.002s");
 		while(os_bit1 != 1)
 		{
+			//printf("os bit = %d\n",os_bit1);
 			nos_i2c_read_word(1, 0x4A,0x01, &config_data1);
 			os_bit1 = (config_data1 >> 7) & 0x0001;
 		}
@@ -7350,6 +7042,42 @@ void config_process(void)
 	}
 	ret = write(fd3[1], writestatus, (2*1*84*(sizeof(unsigned int))));
 
+/****************** kwh reading from etc binary ******************/
+#if 0
+	k_loop = 0;
+	writestatus[k_loop] = (*(map_etc + KWH_PRIMARY) & 0xFFFF0000) >> 16;
+	k_loop++;
+	writestatus[k_loop] = *(map_etc + KWH_PRIMARY) & 0x0000FFFF;
+	ret = write(fd8[1], writestatus, (2*1*(sizeof(unsigned int))));
+
+	writestatus[0] = *(map_etc + KWHERROR_PRIMARY);	
+	ret = write(fd7[1], writestatus, (1*(sizeof(unsigned int))));
+	
+	for(k_loop=0;k_loop < 6;k_loop++)
+	{
+		writestatus[k_loop] = *(map_etc + KWH_SECONDARY + k_loop);
+	}
+	ret = write(fd10[1], writestatus, (3*2*(sizeof(unsigned int))));
+	
+	for(k_loop=0;k_loop < 3;k_loop++)
+	{
+		writestatus[k_loop] = *(map_etc + KWHERROR_SECONDARY + k_loop);
+	}
+	ret = write(fd9[1], writestatus, (3*1*(sizeof(unsigned int))));
+
+	for(k_loop=0;k_loop < 336;k_loop++)
+	{
+		writestatus[k_loop] = *(map_etc + KWH_PANEL1 + k_loop);
+	}
+	ret = write(fd4[1], writestatus, (2*2*84*(sizeof(unsigned int))));
+	
+	for(k_loop=0;k_loop < 168;k_loop++)
+	{
+		writestatus[k_loop] = *(map_etc + KWHERROR_PANEL1 + k_loop);
+	}
+	ret = write(fd3[1], writestatus, (2*1*84*(sizeof(unsigned int))));
+#endif
+
 	
 /*****************************************End***********************************************/
 
@@ -7383,6 +7111,8 @@ void config_process(void)
 	//if(ntpsync_flag)
 	//	system("date -s "00:58:00"");
 	
+	/*
+
 	time_1.tm_year = 2020 - 1900;
 	time_1.tm_mon  = 10 - 1;
 	time_1.tm_mday = 1;
@@ -7396,6 +7126,24 @@ void config_process(void)
 	{
 		stime(&t);
 	}
+	*/
+	if(ntpsync_flag)
+	{
+		ntp_fd = open("/home/root/ntp_update",O_RDONLY,S_IRUSR);
+		if(ntp_fd == -1)
+		{
+			printf("No ntp file present:");
+		}
+		else
+		{
+			//system("./ntp_update");
+			system("/etc/init.d/ntpdate 10.152.156.1");
+			printf("Time synchronised");
+			system("date")''
+			printf("ntpsync_flag\n");
+		}
+	}
+	close(ntp_fd);
 	
     /*************************** While loop starting ***************************/
 	while(1)
@@ -8240,7 +7988,7 @@ void* BAC_update(void* arg)
 	  {
 		offset = 0;
 		//sleep(1);
-                system("sleep 10s");
+        system("sleep 10s");
 	  }
           
 	}

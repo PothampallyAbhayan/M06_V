@@ -841,7 +841,7 @@ typedef struct
 	unsigned int PanelNo;
 	unsigned int CTPanel_No;
 	unsigned int Fan12RmsCurrent;
-        unsigned int SlaveID;
+    unsigned int SlaveID;
 }SYS_STRUCTURE_PARAMETER;
 
 typedef union
