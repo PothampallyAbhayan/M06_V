@@ -585,9 +585,9 @@ unsigned char *cptr_ntp_dummy;
 
 /********************************** initialising fan counters **********************************/
 
-int chn_address[8] = {0x49, 0x49, 0x49, 0x48, 0x48, 0x48, 0x48, 0x4B};
-int chn_number[8] = {1, 2, 3, 0, 1, 2, 3, 0};
-int z_Offset[8] = {0,0,0,0,0,0,0,0};
+int chn_address[12] = {0x49, 0x49, 0x49, 0x48, 0x48, 0x48, 0x48, 0x4B, 0x4A, 0x4A, 0x4A, 0x49};
+int chn_number[12] = {1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0};
+int z_Offset[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
 int adc_flag;
 //status count for GPIO status
 unsigned int status_count[5] = {0, 0, 0, 0, 0};
@@ -6539,9 +6539,9 @@ static void icos_test_adc(int addr, int channel)
   int fan_err_status = 0, config, get_fan_status = 0, fan_alarm = 0;
   int os_bit1;
   nos_uint16 config_data1, conver_data1;
-  int fail_count[8] = {0,0,0,0,0,0,0,0};
-  int struck_count[8] = {0,0,0,0,0,0,0,0};
-  int fan_rec_count[8] = {0,0,0,0,0,0,0,0};
+  int fail_count[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
+  int struck_count[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
+  int fan_rec_count[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
   
 	while(1) 
 	{
@@ -7137,9 +7137,9 @@ void config_process(void)
 		else
 		{
 			//system("./ntp_update");
-			system("/etc/init.d/ntpdate 10.152.156.1");
-			printf("Time synchronised");
-			system("date")''
+			system("/usr/sbin/ntpdate -s -u 10.152.156.1");
+			printf("Synchronising time with ntp server");
+			system("date");
 			printf("ntpsync_flag\n");
 		}
 	}
