@@ -475,7 +475,7 @@ unsigned int wPhaseC_PanelCurrent[3];
 unsigned int wPDU_Parameters[25];                    // Added for Panel OL Alarm // Date : 13/07/2021
 unsigned int wTHD_Parameters[3]; 	// Added to read THD_parameters using Utility (15/11/21)
 unsigned int Dynamic_Buffer[84*NO_OF_SBOARDS];       // Added for Dynamic Mapping
-unsigned int fan_cntr_Parameters[8];  //added on 04/02/22
+unsigned int fan_cntr_Parameters[5];  //added on 04/02/22
 unsigned int wMax_Panel_Limit;
 unsigned int Fan_cntr_48 = 0;
 unsigned int Fan_cntr_49 = 0;
@@ -760,7 +760,7 @@ int main()
      }
      fan_cntr_Parameters[0] = 8;                  // (AdcFanCurrent.array[i] < limit)
      dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[0]);
-     fan_cntr_Parameters[1] = 1;                 // fan_err_cntr[i] set
+     fan_cntr_Parameters[1] = 10;                 // fan_err_cntr[i] set
      dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[1]);
      fan_cntr_Parameters[2] = 2;					// fan_no_err_cntr[i] set
      dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[2]);    
@@ -768,13 +768,6 @@ int main()
      dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[3]);
 	 fan_cntr_Parameters[4] = 9100;					// Fan_alarm_cntr set changed to //fan struck limit
      dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[4]);
-	 fan_cntr_Parameters[5] = 8900;					// Fan_alarm_cntr set changed to //fan struck limit
-     dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[5]);
-	 fan_cntr_Parameters[6] = 10;					// Fan_alarm_cntr set changed to //fan struck limit
-     dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[6]);
-	 fan_cntr_Parameters[7] = 10;					// Fan_alarm_cntr set changed to //fan struck limit
-     dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[7]);
-
     }
     read(fan_cntr_fd ,fan_cntr_buffer,100);
     cptr_fan_cntr_dummy = strtok(fan_cntr_buffer,"\n");
@@ -2364,7 +2357,9 @@ void * shm_filling(void* arg)
 }
 
 #endif
+
 //#if 0//This function for checking purpose only
+
 void * shm_filling(void* arg)
 {
     unsigned int dummy_cntr=0;
@@ -6488,24 +6483,23 @@ void AmbientTempCalc(void)
 	unsigned short AdcAmbientTemp;
 	unsigned short AdcAmbientTemp1;
 	AdcAmbientTemp = (unsigned short)((status_result >> 16) & 0xFFFF);
-
-
+	
 	AdcAmbientTemp1 = ((unsigned long long)(AdcAmbientTemp * 0xA5)/(0x32CD));
 
 	if(AdcAmbientTemp1 < 0x20)
-         {
-	  Data.word.System_Parameter.Ambient_Temp = ((0x600 << 16) | (0));
-	  Reg[FW_VERSION0].reg_d.reg_value = (Data.word.System_Parameter.Ambient_Temp & 0x0000FFFF);
-         }
+	{
+		Data.word.System_Parameter.Ambient_Temp = ((0x600 << 16) | (0));
+		Reg[FW_VERSION0].reg_d.reg_value = (Data.word.System_Parameter.Ambient_Temp & 0x0000FFFF);
+	}
 	else if(AdcAmbientTemp1 > 0x94)
-	 {
-	  Data.word.System_Parameter.Ambient_Temp = ((0x600 << 16) | (0x94));
-	  Reg[FW_VERSION0].reg_d.reg_value = (Data.word.System_Parameter.Ambient_Temp & 0x0000FFFF);
-	 }
+	{
+		Data.word.System_Parameter.Ambient_Temp = ((0x600 << 16) | (0x94));
+		Reg[FW_VERSION0].reg_d.reg_value = (Data.word.System_Parameter.Ambient_Temp & 0x0000FFFF);
+	}
 	else
 	{
-	  Data.word.System_Parameter.Ambient_Temp = ((0x600 << 16) | (((AdcAmbientTemp1 - 0x20)*5)/9));
-	  Reg[FW_VERSION0].reg_d.reg_value = (Data.word.System_Parameter.Ambient_Temp & 0x0000FFFF);
+		Data.word.System_Parameter.Ambient_Temp = ((0x600 << 16) | (((AdcAmbientTemp1 - 0x20)*5)/9));
+		Reg[FW_VERSION0].reg_d.reg_value = (Data.word.System_Parameter.Ambient_Temp & 0x0000FFFF);
 	}
         //printf("\nAmbient Temperature Offset : %d\n",FW_VERSION0);	
 
@@ -6519,46 +6513,52 @@ void ADC_process(void)
 
 static void icos_test_adc(int addr, int channel)
 {
-  nos_uint16    temp_data = 0;
-  nos_uint16    data1 = 0;
-  nos_uint16    data2 = 0;
-  nos_uint16    data3 = 0;
-  nos_uint16    result = 0;
-  nos_uint16 config_data = 0; 
-  nos_uint16 conver_data = 0;
-  nos_uint16    temperature = 0;
-  nos_uint32    temp_and_err_status = 0;
-  unsigned char chn_no,chn_addr,i;
-  //unsigned short Offset = 8806;
-  unsigned short temp;
-  static unsigned char count = 0;
-  sleep(1);
-  unsigned long int read_t;
-  //chn_no = 1;
-  //chn_addr = 0x4A;
-  int fan_err_status = 0, config, get_fan_status = 0, fan_alarm = 0;
-  int os_bit1;
-  nos_uint16 config_data1, conver_data1;
-  int fail_count[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
-  int struck_count[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
-  int fan_rec_count[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
+	nos_uint16    temp_data = 0;
+	nos_uint16    data1 = 0;
+	nos_uint16    data2 = 0;
+	nos_uint16    data3 = 0;
+	nos_uint16    result = 0;
+	nos_uint16 config_data = 0; 
+	nos_uint16 conver_data = 0;
+	nos_uint16    temperature = 0;
+	nos_uint32    temp_and_err_status = 0;
+	unsigned char chn_no,chn_addr,i;
+	//unsigned short Offset = 8806;
+	unsigned short temp;
+	static unsigned char count = 0;
+	sleep(1);
+	unsigned long int read_t;
+	//chn_no = 1;
+	//chn_addr = 0x4A;
+	int fan_err_status = 0, config, get_fan_status = 0, fan_alarm = 0;
+	int os_bit1, w_count;
+	nos_uint16 config_data1, conver_data1;
+	int fail_count[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
+	int struck_count[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
+	int fan_rec_count[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
   
 	while(1) 
 	{
 		//Reads temperature data from ADC through i2c
 		os_bit1 = 0;
 		nos_i2c_write_word(1, 0x4A, 0x01, 0xf3c3);
-		//system("sleep 0.002s");
+		//system("sleep 0.005s");
+		nos_i2c_read_word(1, 0x4A,0x01, &config_data1);
+		os_bit1 = (config_data1 >> 7) & 0x0001;
 		while(os_bit1 != 1)
 		{
 			//printf("os bit = %d\n",os_bit1);
 			nos_i2c_read_word(1, 0x4A,0x01, &config_data1);
 			os_bit1 = (config_data1 >> 7) & 0x0001;
+			w_count++;
+			if(w_count > 10)
+				os_bit1 = 1;
 		}
+		w_count = 0;
+
 		nos_i2c_read_word(1, 0x4A, 0x00, &conver_data1);
 		temp_data = ((conver_data1 << 8) & 0xff00) | ((conver_data1 >> 8) & 0x00ff);
 		temperature_status = temp_data;	
-
 
 		//Checks for Fan failure for all the 8 fans considering 10 samples of each at a time
 		for(i = 0;i < fan_num;i++)
@@ -6616,10 +6616,7 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no, int *avg_value, int *cou
 	int off_count,j_count;
 
 	Offset = *avg_value;
-	
-	//printf("Chn_addr : %x Chn_no : %d\n", chn_addr, chn_no);
 	config_value = (((chn_no + 4) << 4 ) | 0xF383);
-    //printf("Data written into config register : %x\n",config_value);
 
 	off_count = 0;
 	j_count = 0;
@@ -6628,23 +6625,26 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no, int *avg_value, int *cou
     {
 		os_bit = 0;
         nos_i2c_write_word(1, chn_addr, 0x01, config_value);
-	    //system("sleep 0.002s");
-		
-        //nos_i2c_read_word(1, chn_addr,0x01, &config_data);
-		//os_bit = (config_data >> 7) & 0x0001;
+		//system("sleep 0.005s");
+		nos_i2c_read_word(1, chn_addr,0x01, &config_data);
+		os_bit = (config_data >> 7) & 0x0001;
 
 		while(os_bit != 1)
 		{
 			nos_i2c_read_word(1, chn_addr,0x01, &config_data);
+			//system("sleep 0.005s");
+			nos_i2c_read_word(1, chn_addr,0x01, &config_data);
 			os_bit = (config_data >> 7) & 0x0001;
+			j_count++;
+			if(j_count>10)
+				os_bit = 1;
 		}
+		j_count = 0;
       
         if(os_bit)
         {
 			nos_i2c_read_word(1, chn_addr, 0x00, &conver_data);
-		
 			f_data = ((conver_data << 8) & 0xff00) | ((conver_data >> 8) & 0x00ff);
-			
 			adc_sum += f_data;
 			sample_count++;
 			
@@ -6656,18 +6656,16 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no, int *avg_value, int *cou
 				temp = (~temp) + 1;
 			}
 
-			if(temp > fan_cntr_Parameters[4]) //default limit set : 9100 
-			{
-				j_count++;
-			}
+			//if(temp > fan_cntr_Parameters[4]) //default limit set : 9100 
+			//{
+			//	j_count++;
+			//}
 			//temp > 10000 failure(Fan struck) //default limit set : 100
 			if(temp < fan_cntr_Parameters[3])
 				off_count++;
 
         }
-		//system("sleep 0.0001s");
     }
-	//printf("jam count : %d\n",j_count);
 	
 	if(sample_count != 0)
 		adc_avg = adc_sum/sample_count;
@@ -6676,7 +6674,7 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no, int *avg_value, int *cou
 		*avg_value = adc_avg;
 
 	*count = off_count; 
-	*jam_count = j_count;   
+	*jam_count = 0;   
 }
 
 
