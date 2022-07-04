@@ -549,7 +549,7 @@ modbus_t *mod_ctx,*mod_ctx1;
 modbus_t *tcp_ctx;
 modbus_mapping_t *mapping ;
 sensor_PKT *copy_CAN_Rx_to_buffer_2(sensor_PKT *p_ptr);
-unsigned char wMboard_Fw_Ver[16] = {'M','-','0','S','T','T',' ',' ',' ',' ',' ',' ',' ',' ',' ',' '};
+unsigned char wMboard_Fw_Ver[16] = {'M','-','0','7','T',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' '};
 
 /****************************************** BACnet ******************************************/
 
