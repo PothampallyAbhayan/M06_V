@@ -16,7 +16,9 @@
 #include"unistd.h"
 #include <sys/time.h> //753
 #include "nos_i2c.h"
-
+#include <sys/socket.h>//753
+#include <netdb.h>//753
+#include <stdlib.h>//753
 /*************************** Extern variables ***************************/
 
 extern sensor_PKT  *sensor_Rx_pkt_pool_hdr ;
@@ -50,6 +52,7 @@ static void icos_test_adc(int addr, int channel);
 int bit_position(unsigned int);      
 void Dynammic_sorting(void);
 int get_adc_avg(int adc_flag, int chn_addr, int chn_no,int *avg_value, int *off_count, int *str_count);
+void ntptimesync(void);
 
 /******************************** MACRO DEFINITIONS ********************************/
 
@@ -104,6 +107,8 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no,int *avg_value, int *off_
 #define AMBIENT_TEMP     PANEL_OL_TRIP + 1
 
 #define GROUND_CURRENT  AMBIENT_TEMP + 1
+
+#define BRANCH_UNDER_CURRENT   GROUND_CURRENT + 1
 
 /************************** MACRO for temp shared memory **************************/
 
@@ -408,7 +413,7 @@ unsigned int  alarm_status = 0; // Alarm status byte
 volatile unsigned char alarm_flag = 0;
 unsigned int   fan_cntr = 0;
 
-unsigned int fan_num;
+unsigned short fan_num, temp_fannum;
 unsigned int fan_num_fd; 
 unsigned int fan_bits;
 unsigned char  fannum_buff[10] = {0};
@@ -430,8 +435,14 @@ unsigned char *cptr_offset_dummy;
 unsigned int ntp_fd;
 unsigned char ntpflag_buffer[6];
 unsigned int ntpsync_flag = 0;
+
+unsigned int sb_fd;
+unsigned char sb_flag_buffer[6];
+unsigned int sboard_ver = 0;
+
 struct tm time_1 = { 0 };
 
+char IPbuffer[100];
 
 unsigned char kwh_buffer[5000]={0};
 unsigned char *kwh_dummy;
@@ -609,26 +620,50 @@ int main()
     dptr3 = (unsigned int *)temp3_ptr->data;
     temp3_ptr->can_id = 0x7E7;
     
-   
+    
+	/**************************** Variables ****************************/
+
+	/************************* Signature byte *************************/
     int i=0;
     ssize_t ret_in;
     unsigned char buffer[10]= {0};
     unsigned char signature;
     unsigned char flag = 0;
+
+	/**************************** Slave ID ****************************/
+
     int read_fd;
+
+	/************************** Shared memory *************************/
+
     key_t   shmkey;
     int     shmid;
-    
-    //7539
 
-    /******************  UART PORT Opening & Initialisation ********************/
+	/********************* For IP Address reading *********************/
+
+	FILE *ip_fp;
+    char line [50];
+    struct in_addr addrptr;
+    int retval;
+    char *ipptr;
+    unsigned short *sip_ptr;
+    //unsigned char  buzz_cmd;
+
+	/***************************** memmap ****************************/
+
+    int j;
+    int mem_fd = 0;
+    int result;
+
+
+    /********************** UART PORT Opening & Initialisation **********************/
+
     uart_fd = open("/dev/ttymxc2",O_RDWR | O_NOCTTY);
     if (uart_fd == -1)
        printf("\nError in opening uart\n");
     else 
        printf("\nOpened succesfully - ttymxc2\n");
     
-
     tcgetattr(uart_fd, &SerialPortSettings);
     cfsetispeed(&SerialPortSettings,B9600);   // O/P baud rate 9600
     cfsetospeed(&SerialPortSettings,B9600);   // I/P baud rate 9600
@@ -641,11 +676,9 @@ int main()
 
     SerialPortSettings.c_cc[VMIN] = 1;
     SerialPortSettings.c_cc[VTIME] = 0;
-    
     tcsetattr(uart_fd,TCSANOW,&SerialPortSettings);
     //tcsetattr(uart_fd,TCIOFLUSH); 
     //close(uart_fd);
-    /******************** END *********************************/
 
 	/*
 	printf("Checking the timer\n");
@@ -654,25 +687,11 @@ int main()
 	system("date");
 	*/
     
-//for ip Address reading
-	FILE *ip_fp;
-    char line [50];
-    struct in_addr addrptr;
-    int retval;
-    char *ipptr;
-    unsigned short *sip_ptr;
-    //unsigned char  buzz_cmd;
-//End
-/**********************memmap******************************/
-    int j;
-    int mem_fd = 0;
-    int result;
-/**********************shared memory*******************************/
+	/******************************** Shared memory ********************************/
+
     shmkey = ftok("shmfile",65);
     shmid  = shmget(shmkey,10,0600|IPC_CREAT);
     shmptr = shmat(shmid,(void*)0,0);
-    
-/**********************I2C for digital port*******************************/
 
     mem_fd = open(FILEPATH,O_RDWR|O_CREAT|O_TRUNC,0600);
     if(mem_fd == -1)
@@ -702,12 +721,12 @@ int main()
       exit(EXIT_FAILURE);
     }
 
-/**********************I2C for digital port*******************************/
+	/**************************** I2C for digital port ****************************/
+
     nos_i2c_bus_open(0);
     usleep(100);
     nos_i2c_bus_open(1);
     usleep(100);
-
     nos_i2c_device_open(0,0x43);//I2C open
     usleep(100);
     nos_i2c_device_open(0,0x44);
@@ -740,48 +759,50 @@ int main()
     nos_i2c_write(0, 0x22, 0x02, &buzz_cmd, 1);//icos_io_set_direction(0,0x22,0x06,0x00);			// for Alarm
     usleep(100);
     
-/**********************ADC Initialisation****************/
+	/******************************* Debug prints *******************************/
 
 	jack = KWH_B2_OFFSET;
 	printf("JACK = %d\n",jack);
+
+	/**************************** ADC Initialisation ****************************/
     
     usleep(200);
     printf("\nADC channels opened and Initialised\n");
-/***********************END*******************************/
-/************ Open the file corresponding to Fan_Limit_Parameters ***********************************************************************/
-    j=0;
-    fan_cntr_fd = open("/etc/fancntrparameters",O_RDONLY,S_IRUSR);
-    if (fan_cntr_fd == -1)
-    {
-     fan_cntr_fd = open("/etc/fancntrparameters",O_RDWR|O_CREAT,S_IRUSR);
-     if (fan_cntr_fd == -1)
-     {     
-      perror("Error in fan_cntr_parameters openning:");
-     }
-     fan_cntr_Parameters[0] = 8;                  // (AdcFanCurrent.array[i] < limit)
-     dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[0]);
-     fan_cntr_Parameters[1] = 10;                 // fan_err_cntr[i] set
-     dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[1]);
-     fan_cntr_Parameters[2] = 2;					// fan_no_err_cntr[i] set
-     dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[2]);    
-     fan_cntr_Parameters[3] = 100;					//  fan_rec_cntr set changed to //fan failure limit
-     dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[3]);
-	 fan_cntr_Parameters[4] = 9100;					// Fan_alarm_cntr set changed to //fan struck limit
-     dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[4]);
-    }
-    read(fan_cntr_fd ,fan_cntr_buffer,100);
-    cptr_fan_cntr_dummy = strtok(fan_cntr_buffer,"\n");
-    while(cptr_fan_cntr_dummy != NULL)
-    {
-      fan_cntr_Parameters[j] = atoi(cptr_fan_cntr_dummy);
 
-      cptr_fan_cntr_dummy = strtok(NULL,"\n");
-      j++;
-    }
-    j=0;
-    close(fan_cntr_fd);
+	/************************ Fan offset configuration file ************************/
 
-	/************************* Fan number file ***************************************/
+	j=0;
+	fan_cntr_fd = open("/etc/fancntrparameters",O_RDWR,S_IRUSR);
+	if (fan_cntr_fd == -1)
+	{
+		fan_cntr_fd = open("/etc/fancntrparameters",O_RDWR|O_CREAT,S_IRUSR);
+		if (fan_cntr_fd == -1)
+		{     
+		perror("Error in fan_cntr_parameters openning:");
+		}
+		fan_cntr_Parameters[0] = 8;                 
+		dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[0]);
+		fan_cntr_Parameters[1] = 10;                 
+		dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[1]);
+		fan_cntr_Parameters[2] = 2;					
+		dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[2]);    
+		fan_cntr_Parameters[3] = 100;					
+		dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[3]);
+		fan_cntr_Parameters[4] = 9100;					
+		dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[4]);
+	}//else maybe required 7539
+	read(fan_cntr_fd ,fan_cntr_buffer,100);
+	cptr_fan_cntr_dummy = strtok(fan_cntr_buffer,"\n");
+	while(cptr_fan_cntr_dummy != NULL)
+	{
+		fan_cntr_Parameters[j] = atoi(cptr_fan_cntr_dummy);
+		cptr_fan_cntr_dummy = strtok(NULL,"\n");
+		j++;
+	}
+	j=0;
+	close(fan_cntr_fd);
+
+	/********************************* Fan numfile *********************************/
 
 	fan_num_fd = open("/etc/fan_num",O_RDONLY,S_IRUSR);  
 	if(fan_num_fd == -1)
@@ -802,58 +823,59 @@ int main()
 	}
 	close(fan_num_fd);
 	fan_bits = (1 << fan_num) - 1;
+	temp_fannum = fan_num;
+	fan_bits = (1 << fan_num) - 1;
 
-/************************************ END ***********************************************************************************/  
-
-fancalib_flagfd = open("/tmp/fancalib_flag",O_RDONLY,S_IRUSR);
-if (fancalib_flagfd == -1)
-{
-	fancalib_flagfd = open("/tmp/fancalib_flag",O_RDWR|O_CREAT,S_IRUSR);
+	/********************************** Fan offset **********************************/
+	
+	fancalib_flagfd = open("/tmp/fancalib_flag",O_RDONLY,S_IRUSR);
 	if (fancalib_flagfd == -1)
 	{
-		perror("Error in fan offset flag file opening:");
+		fancalib_flagfd = open("/tmp/fancalib_flag",O_RDWR|O_CREAT,S_IRUSR);
+		if (fancalib_flagfd == -1)
+		{
+			perror("Error in fan offset flag file opening:");
+		}
+		dprintf(fancalib_flagfd,"%d\n",0);
 	}
-	dprintf(fancalib_flagfd,"%d\n",0);
-}
-read(fancalib_flagfd,fanflag_buffer,4);
-fancalib_flag = atoi(fanflag_buffer);
-//printf("Fan Calibration Offset : %d\n",fancalib_flag);
+	read(fancalib_flagfd,fanflag_buffer,4);
+	fancalib_flag = atoi(fanflag_buffer);
 
-if(!fancalib_flag)
-{
-	get_fan_offset();
-	fan_offsetfd = open("/tmp/fanoffset",O_RDWR|O_CREAT,S_IRUSR);
-	if (fan_offsetfd == -1)
+	if(!fancalib_flag)
 	{
-		perror("Error in fan offset file opening:");
+		get_fan_offset();
+		fan_offsetfd = open("/tmp/fanoffset",O_RDWR|O_CREAT,S_IRUSR);
+		if (fan_offsetfd == -1)
+		{
+			perror("Error in fan offset file opening:");
+		}
+		for (j = 0; j < fan_num; j++)
+		{
+			//printf("Into file : Fan Offset[%d] :  %d\n",j,z_Offset[j]);
+			dprintf(fan_offsetfd,"%d\n",z_Offset[j]);
+		}
+		//fancalib_flagfd = open("/tmp/fancalib_flag",O_RDWR|O_TRUNC,S_IRUSR);
+		lseek(fancalib_flagfd,0,SEEK_SET);
+		dprintf(fancalib_flagfd,"%d\n",1);	
 	}
-	for (j = 0; j < fan_num; j++)
+	else
 	{
-		//printf("Into file : Fan Offset[%d] :  %d\n",j,z_Offset[j]);
-		dprintf(fan_offsetfd,"%d\n",z_Offset[j]);
+		j = 0;
+		fan_offsetfd = open("/tmp/fanoffset",O_RDONLY,S_IRUSR);
+		read(fan_offsetfd,fanoffset_buffer,100);
+		cptr_offset_dummy = strtok(fanoffset_buffer,"\n");
+		while(cptr_offset_dummy != NULL)
+		{
+			z_Offset[j] = atoi(cptr_offset_dummy);
+			//printf("From file : Fan Offset[%d] :  %d\n",j,z_Offset[j]);
+			cptr_offset_dummy = strtok(NULL,"\n");
+			j++;
+		}
 	}
-	//fancalib_flagfd = open("/tmp/fancalib_flag",O_RDWR|O_TRUNC,S_IRUSR);
-	lseek(fancalib_flagfd,0,SEEK_SET);
-	dprintf(fancalib_flagfd,"%d\n",1);	
-}
-else
-{
-	j = 0;
-	fan_offsetfd = open("/tmp/fanoffset",O_RDONLY,S_IRUSR);
-	read(fan_offsetfd,fanoffset_buffer,100);
-    cptr_offset_dummy = strtok(fanoffset_buffer,"\n");
-    while(cptr_offset_dummy != NULL)
-    {
-      z_Offset[j] = atoi(cptr_offset_dummy);
-      //printf("From file : Fan Offset[%d] :  %d\n",j,z_Offset[j]);
-      cptr_offset_dummy = strtok(NULL,"\n");
-      j++;
-	}
-}
-close(fan_offsetfd);
-close(fancalib_flagfd); 
+	close(fan_offsetfd);
+	close(fancalib_flagfd); 
 
-/*************************** Configure ntp sync ***************************/
+	/******************************** ntp flag file ********************************/
 
 	ntp_fd = open("/etc/ntpsync_flag",O_RDONLY,S_IRUSR);
 	if (ntp_fd == -1)
@@ -867,17 +889,32 @@ close(fancalib_flagfd);
 	}
 	read(ntp_fd,ntpflag_buffer,4);
 	ntpsync_flag = atoi(ntpflag_buffer);
-
-	if(ntpsync_flag)
-	{
-		epochtime_cntr = 1500;
-		jack = 0;
-	}
 	close(ntp_fd);
 
-/************* End **************************************************/
+	//if(ntpsync_flag)
+	//{
+	//	epochtime_cntr = 1500;
+	//	jack = 0;
+	//}
 
-/***********************PWM Initialisation****************/
+	/******************************** S board version offset ********************************/
+
+	sb_fd = open("/etc/sboard_ver",O_RDONLY,S_IRUSR);
+	if (sb_fd == -1)
+	{
+		sb_fd = open("/etc/sboard_ver",O_RDWR|O_CREAT,S_IRUSR);
+		if (sb_fd == -1)
+		{
+			perror("Error in sboard version file opening:");
+		}
+		dprintf(ntp_fd,"%d\n",0);
+	}
+	read(sb_fd,sb_flag_buffer,4);
+	sboard_ver = atoi(sb_flag_buffer);
+	close(sb_fd);
+	
+	/****************************** PWM Initialisation ******************************/
+
     #if 1
     icos_pwm_init(0);
     usleep(100);
@@ -888,37 +925,39 @@ close(fancalib_flagfd);
     icos_pwm_channel_enable(0,1);
     #endif
 
-/********** Parameter ID setting for System Status******************/
+	/******************** Parameter ID setting for System Status ********************/
+
     Data.word.System_Status.paraID = 0x02;
-    j=0;
-/************* Open the file corresponding to Dynamic Mapping of CT**/
-    dynamic_mappingfd = open("/etc/dynamic_mapping",O_RDONLY,S_IRUSR);
-    if (dynamic_mappingfd == -1)
-    {
-      dynamic_mappingfd = open("/etc/dynamic_mapping",O_RDWR|O_CREAT,S_IRUSR);
-      if (dynamic_mappingfd == -1)
-      {
-	perror("Error in dynamic_mapping opening:");
-      }
-      for (j=1; j <=(84*NO_OF_SBOARDS); j++)
-          {
-          Dynamic_Buffer[j-1] = j;
-          dprintf(dynamic_mappingfd,"%d\n",j);
-          }
-    }
-    else
-    {
+
+	/**************************** Dynamic Mapping file  ****************************/
+
+	j=0;
+	dynamic_mappingfd = open("/etc/dynamic_mapping",O_RDONLY,S_IRUSR);
+	if (dynamic_mappingfd == -1)
+	{
+		dynamic_mappingfd = open("/etc/dynamic_mapping",O_RDWR|O_CREAT,S_IRUSR);
+		if (dynamic_mappingfd == -1)
+		{
+			perror("Error in dynamic_mapping opening:");
+		}
+		for (j=1; j <=(84*NO_OF_SBOARDS); j++)
+		{
+			Dynamic_Buffer[j-1] = j;
+			dprintf(dynamic_mappingfd,"%d\n",j);
+		}
+	}
+	else
+	{
 		read(dynamic_mappingfd,dynamic_buffer,1500);
 		cptr_dynamic_dummy = strtok(dynamic_buffer,"\n");
 		while(cptr_dynamic_dummy != NULL)
 		{
-		Dynamic_Buffer[j] = atoi(cptr_dynamic_dummy);
-		//printf("Dynamic_Buffer[%d] %d\n",j,Dynamic_Buffer[j]);
-		cptr_dynamic_dummy = strtok(NULL,"\n");
-		j++;
+			Dynamic_Buffer[j] = atoi(cptr_dynamic_dummy);
+			cptr_dynamic_dummy = strtok(NULL,"\n");
+			j++;
 		}
-    }
-    close(dynamic_mappingfd); 
+	}
+	close(dynamic_mappingfd); 
 
 
 /*********************** NTP file *****************************************/
@@ -948,89 +987,118 @@ close(fancalib_flagfd);
 		}
     }
     close(ntpserverfd); 
-*/
+
+
+	ntpserverfd = open("/home/root/ntp_update",O_RDONLY,S_IRUSR);
+    if (ntpserverfd == -1)
+    {
+		ntpserverfd = open("/etc/ntp_server",O_RDWR|O_CREAT,S_IRUSR);
+		if (ntpserverfd == -1)
+		{
+			perror("Error in ntp_server opening:");
+		}
+		dprintf(ntpserverfd,"/usr/sbin/ntpdate -s -u 10.152.156.1\n");
+    }
+    else
+    {
+		read(ntpserverfd,ntp_buffer,40);
+		cptr_ntp_dummy = strtok(ntp_bufferr,"\n");
+		while(cptr_dynamic_dummy != NULL)
+		{
+			read(ntpserverfd,ntp_buffer,40);
+			cptr_ntp_dummy = strtok(ntpbuffer,"\n");
+			strcpy(ntp_ip,ntpbuffer);
+			cptr_ntp_dummy = strtok(NULL,"\n");
+			strcpy(ntp_port,cptr_ntp_dummy);
+		}
+    }
+    close(ntpserverfd);
+*/ 
 
 /************* End **************************************************/
 
+//To be removed 7539
+	for (j = 0; j<12; j++)   
+	{
+		fan_err_cntr[j] = 0;
+		fan_no_err_cntr[j] = 0;
+	}
+	j=0;
 
-  for (j = 0; j<12; j++)   //12345
-  {
-  fan_err_cntr[j] = 0;
-  fan_no_err_cntr[j] = 0;
-  }
-  j=0;
+	/************************** Panel Configuration file  **************************/
 
-/************ Open the file corresponding to PANEL_OL ***********************************************************************/
-    j=0;
-    panel_fd = open("/etc/panelconfig",O_RDONLY,S_IRUSR);
-    if (panel_fd == -1)
-    {
-     panel_fd = open("/etc/panelconfig",O_RDWR|O_CREAT,S_IRUSR);
-     if (panel_fd == -1)
-     {     
-      perror("Error in panelconfig openning:");
-     }
-     wPDU_Parameters[0] = 300;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[0]);
-     wPDU_Parameters[1] = 1389;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[1]);
-     wPDU_Parameters[2] = 1389;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[2]);
-     wPDU_Parameters[3] = 1389;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[3]);
-     wPDU_Parameters[4] = 1667;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[4]);
-     wPDU_Parameters[5] = 1667;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[5]);
-     wPDU_Parameters[6] = 1667;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[6]);
-     wPDU_Parameters[7] = 1;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[7]);
-     wPDU_Parameters[8] = 63;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[8]);
-     wPDU_Parameters[9] = 64;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[9]);
-     wPDU_Parameters[10] = 126;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[10]);
-     wPDU_Parameters[11] = 127;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[11]);
-     wPDU_Parameters[12] = 189;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[12]);
-     wPDU_Parameters[13] = 0;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[13]);
-     wPDU_Parameters[14] = 3;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[14]);
-     wPDU_Parameters[15] = 3;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[15]);
-     wPDU_Parameters[16] = 3;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[16]);
-     wPDU_Parameters[17] = 120;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[17]);
-     wPDU_Parameters[18] = 2400;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[18]);
-     wPDU_Parameters[19] = 2400;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[19]); 
-     wPDU_Parameters[20] = 5000;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[20]);
-     wPDU_Parameters[21] = 150;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[21]);
-     wPDU_Parameters[22] = 2083;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[22]);   
-     wPDU_Parameters[23] = 2083;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[23]);   
-     wPDU_Parameters[24] = 2083;
-     dprintf(panel_fd,"%d\n",wPDU_Parameters[24]);
-    }
-    read(panel_fd,panel_buffer,100);
-    cptr_panel_dummy = strtok(panel_buffer,"\n");
-    while(cptr_panel_dummy != NULL)
-    {
-      wPDU_Parameters[j] = atoi(cptr_panel_dummy);
-      //printf("wPDU_Parameters[%d] %d\n",j,wPDU_Parameters[j]);
-      cptr_panel_dummy = strtok(NULL,"\n");
-      j++;
-    }
-    j=0;
+	panel_fd = open("/etc/panelconfig",O_RDONLY,S_IRUSR);
+	if (panel_fd == -1)
+	{
+		panel_fd = open("/etc/panelconfig",O_RDWR|O_CREAT,S_IRUSR|S_IWUSR|S_IXUSR); //7539 Only S_IRUSR for mode
+		if (panel_fd == -1)
+		{     
+			perror("Error in panelconfig openning:");
+		}
+		wPDU_Parameters[0] = 300;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[0]);
+		wPDU_Parameters[1] = 1389;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[1]);
+		wPDU_Parameters[2] = 1389;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[2]);
+		wPDU_Parameters[3] = 1389;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[3]);
+		wPDU_Parameters[4] = 1667;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[4]);
+		wPDU_Parameters[5] = 1667;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[5]);
+		wPDU_Parameters[6] = 1667;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[6]);
+		wPDU_Parameters[7] = 1;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[7]);
+		wPDU_Parameters[8] = 63;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[8]);
+		wPDU_Parameters[9] = 64;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[9]);
+		wPDU_Parameters[10] = 126;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[10]);
+		wPDU_Parameters[11] = 127;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[11]);
+		wPDU_Parameters[12] = 168;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[12]);
+		wPDU_Parameters[13] = 0;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[13]);
+		wPDU_Parameters[14] = 3;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[14]);
+		wPDU_Parameters[15] = 3;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[15]);
+		wPDU_Parameters[16] = 3;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[16]);
+		wPDU_Parameters[17] = 120;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[17]);
+		wPDU_Parameters[18] = 2400;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[18]);
+		wPDU_Parameters[19] = 2400;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[19]); 
+		wPDU_Parameters[20] = 5000;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[20]);
+		wPDU_Parameters[21] = 150;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[21]);
+		wPDU_Parameters[22] = 2083;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[22]);   
+		wPDU_Parameters[23] = 2083;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[23]);   
+		wPDU_Parameters[24] = 2083;
+		dprintf(panel_fd,"%d\n",wPDU_Parameters[24]);
+	}
+	else
+	{
+		read(panel_fd,panel_buffer,100);
+		cptr_panel_dummy = strtok(panel_buffer,"\n");
+		while(cptr_panel_dummy != NULL)
+		{
+			wPDU_Parameters[j] = atoi(cptr_panel_dummy);
+			//printf("wPDU_Parameters[%d] %d\n",j,wPDU_Parameters[j]);
+			cptr_panel_dummy = strtok(NULL,"\n");
+			j++;
+		}
+	}
+	j=0;
 
     Data.word.System_Parameter.Panel1_CT_Start = ((0x603 << 16) | (wPDU_Parameters[7]));
     Data.word.System_Parameter.Panel1_CT_End = ((0x604 << 16) | (wPDU_Parameters[8]));
@@ -1039,122 +1107,114 @@ close(fancalib_flagfd);
     Data.word.System_Parameter.Panel3_CT_Start = ((0x607 << 16) | (wPDU_Parameters[11]));
     Data.word.System_Parameter.Panel3_CT_End = ((0x608 << 16) | (wPDU_Parameters[12]));
     
-    ///Sending always zero AK for testing
     if(wPDU_Parameters[13]==1)
       wPDU_Parameters[13] = 0;
 
-    Data.word.System_Parameter.PanelNo = ((0x60B << 16) | (wPDU_Parameters[13]));//changed to 0 from parameter
-    //End
-    
+    Data.word.System_Parameter.PanelNo = ((0x60B << 16) | (wPDU_Parameters[13]));
     Data.word.System_Parameter.CTPanel_No = ((0x60C << 16) | (((wPDU_Parameters[16] & 0xFF) << 8) | ((wPDU_Parameters[15] & 0xFF) << 4) | (wPDU_Parameters[14] & 0xFF)));
     Data.word.Sys.wPowerCapacity = ((0x103 << 16) | (wPDU_Parameters[0]));
     Data.word.Sys.wNominal_IPVolt = ((0x106 << 16) | (wPDU_Parameters[18]));
     Data.word.Sys.wNominal_OPVolt = ((0x107 << 16) | (wPDU_Parameters[19]));
     wMax_Panel_Limit = (unsigned int)((unsigned long long)(wPDU_Parameters[1] * wPDU_Parameters[21]))/100;
-    
 
-/*********************** Create/Open the file corresponding to No_XFMR ******************************************************/
+	/***************************** No Transformer file  *****************************/
 
-   no_xfmr_fd =open("/etc/no_xfmr",O_RDONLY,S_IRUSR);
-	  
-   if(no_xfmr_fd == -1)
-   {
-     no_xfmr_fd = open("/etc/no_xfmr",O_RDWR|O_CREAT,S_IRUSR);
-
-     if ( no_xfmr_fd == -1 )
-     {
-       		perror("Error in no xfmr file open:");
-     } 
-
-     dprintf(no_xfmr_fd,"%d\n",1);
-      
-   } 
-
-   close(no_xfmr_fd);
-
-   no_xfmr_fd = open("/etc/no_xfmr",O_RDONLY,S_IRUSR);
-
-    if (no_xfmr_fd == -1)
-    {
-       		perror("Error in no xfmr file open:");
-    }
-
-    read(no_xfmr_fd,buffer1,3);
-    no_xfmr = atoi(buffer1);
-    Data.word.System_Parameter.no_xfmr = ((0x602 << 16) | (no_xfmr));
-    close(no_xfmr_fd);
-
-/*************************************************END*************************************************************************/          
-/***Start Signature reading*****/
-    do
-    {
-      read_fd =open("/etc/signature",O_RDONLY|S_IRUSR);
-	  
-      if(read_fd == -1) 
-      {
-		if(!(flag & 1))
+	no_xfmr_fd =open("/etc/no_xfmr",O_RDONLY,S_IRUSR);
+	if(no_xfmr_fd == -1)
+	{
+		no_xfmr_fd = open("/etc/no_xfmr",O_RDWR|O_CREAT,S_IRUSR);
+		if ( no_xfmr_fd == -1 )
 		{
-		perror("log file open\n");
-		printf("\n*******signature byte is missing*****\n");
-		flag |= 1;
+			perror("Error in no xfmr file open:");
+		} 
+		dprintf(no_xfmr_fd,"%d\n",1); 
+	} 
+	close(no_xfmr_fd);
 
+	//7539 else to be added
+	no_xfmr_fd = open("/etc/no_xfmr",O_RDONLY,S_IRUSR);
+	if (no_xfmr_fd == -1)
+	{
+		perror("Error in no xfmr file open:");
+	}
+	read(no_xfmr_fd,buffer1,3);
+	no_xfmr = atoi(buffer1);
+	Data.word.System_Parameter.no_xfmr = ((0x602 << 16) | (no_xfmr));
+	close(no_xfmr_fd);
+
+
+	/*************************** Reading Signature byte  *****************************/
+
+	do
+	{
+		read_fd =open("/etc/signature",O_RDONLY|S_IRUSR);
+		if(read_fd == -1) 
+		{
+			if(!(flag & 1))
+			{
+				perror("log file open\n");
+				printf("\n*******signature byte is missing*****\n");
+				flag |= 1;
+			}
 		}
-      }
-      else
-      {
-		flag &= ~(1);
-		ret_in = read(read_fd,buffer,3);
-		signature = atoi(buffer);
-		printf("signature is :%d\n",signature);  
-      }
-
-      close(read_fd);
+		else
+		{
+			flag &= ~(1);
+			ret_in = read(read_fd,buffer,3);
+			signature = atoi(buffer);
+			printf("signature is :%d\n",signature);  
+		}
+		close(read_fd);
 	}while(flag);
 	   
- /***Start modbus ID reading*****/
+
 	buffer[0]=0;
     buffer[1]=0;
     buffer[2]=0;
     buffer[3]=0;
     buffer[4]=0;
     buffer[5]=0;
-    do
-    {
-      read_fd =open("/etc/slaveid",O_RDONLY|S_IRUSR);
-      if(read_fd == -1) 
-      {
-		if(!(flag & 1))
-		{
-		  perror("log file open\n");
-		  printf("\n*******slaveid is missing*****\n");
-		  flag |= 1;
-		}
-      }
-      else
-      {
-		flag &= ~(1);
-		ret_in = read(read_fd,buffer,3);
-		slave_id = atoi(buffer);
-		Data.word.System_Parameter.SlaveID = ((0x60E << 16) | (slave_id));
-		printf("slaveid is :%d\n",slave_id);       
-      }
 
-        close(read_fd);
-    }while(flag);
+	/******************************* Reading Slave ID  *******************************/
+	
+	do
+	{
+		read_fd =open("/etc/slaveid",O_RDONLY|S_IRUSR);
+		if(read_fd == -1) 
+		{
+			if(!(flag & 1))
+			{
+				perror("log file open\n");
+				printf("\n*******slaveid is missing*****\n");
+				flag |= 1;
+			}
+		}
+		else
+		{
+			flag &= ~(1);
+			ret_in = read(read_fd,buffer,3);
+			slave_id = atoi(buffer);
+			Data.word.System_Parameter.SlaveID = ((0x60E << 16) | (slave_id));
+			printf("slaveid is :%d\n",slave_id);       
+		}
+		close(read_fd);
+	}while(flag);
+
+	/********************************** DB Creation  *********************************/
 
     create_pkt_pool(100,Rx_PKT);
     sem_init(&semaphore_1,0,0);
 
-    if ( p_db1 == NULL )
+    if (p_db1 == NULL )
     {
-      p_db1 = icos_mbusdb_init (1);//Shared Memory
+      p_db1 = icos_mbusdb_init(1);//Shared Memory
     }
 
     create_db_field(p_db1,SHM_FIELD);//Shared memory
     system("sleep 30s");
 
-
-/**************Copying FW Version*********/
+	/****************************** Copying FW Version  ******************************/
+	
     Data.word.Sys.wSys_Fw_Ver[0] = (0x12C0000 | ((unsigned int)wMboard_Fw_Ver[0]<<8) | ((unsigned int)wMboard_Fw_Ver[1]));
     Data_nv.word.Sys.wSys_Fw_Ver[0] = (0x12C0000 | ((unsigned int)wMboard_Fw_Ver[0]<<8) | ((unsigned int)wMboard_Fw_Ver[1]));
     Reg[STATUS_UPDATE + 44].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[0] & 0x0000FFFF);
@@ -1180,7 +1240,8 @@ close(fancalib_flagfd);
     Data_nv.word.Sys.wSys_Fw_Ver[7] = (0x1330000 | ((unsigned int)wMboard_Fw_Ver[14]<<8) | ((unsigned int)wMboard_Fw_Ver[15]));
     Reg[STATUS_UPDATE + 51].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[7] & 0x0000FFFF);
 
-/**************Copying IP Number*********/
+	/****************************** Copying IP Number  ******************************/
+
     ip_fd = socket(AF_INET,SOCK_DGRAM,0);
     ifr.ifr_addr.sa_family = AF_INET;
     strncpy(ifr.ifr_name,"eth0",IFNAMSIZ-1);
@@ -1199,21 +1260,9 @@ close(fancalib_flagfd);
     Data_nv.word.Sys.IPAddress[0] = ((0x136 << 16 ) | (*sip_ptr));
     Reg[STATUS_UPDATE + 54].reg_d.reg_value = (Data.word.Sys.IPAddress[1] & 0x0000FFFF);
 
-	printf("before printing\n");
+	sprintf(IPbuffer, "\n%d.%d.%d.%d\n",((Data.word.Sys.IPAddress[0] & 0xFF)), (((Data.word.Sys.IPAddress[0] & 0xFFFF) >> 8) & 0x00FF), ((Data.word.Sys.IPAddress[1] & 0xFF)), (((Data.word.Sys.IPAddress[1] & 0xFFFF) >> 8) & 0x00FF));
+	printf("IP Address : %s\n",IPbuffer);
 
-/*
-	unsigned char bytes[4];
-	bytes[0]= *sip_ptr & 0xFF;
-	bytes[1]=(*sip_ptr >> 8) & 0xFF;
-	
-	bytes[2]=(*sip_ptr >> 16) & 0xFF;
-	bytes[3]=(*sip_ptr >> 24) & 0xFF;
-	printf("IP Address : %d.%d.%d.%d\n",bytes[2],bytes[3],bytes[0],bytes[1]);
-
-	printf("After printing\n");
-	*/
-
-  /*********************END*****************/ 
   
   
   /***************** creating a new /etc/kwhdata file if it doesn't exit ************/
@@ -1392,7 +1441,6 @@ close(fancalib_flagfd);
 		i = 0;
 		close(kwhtxt_fd);
 
-        //Writing signature byte
 		*(map_etc + 518 - 2) = 0xAA55;
   
 		if (msync((void *)map_etc, FILESIZE_KWHDATA, MS_SYNC) < 0)
@@ -1554,15 +1602,14 @@ void DB_entry_creation_for(unsigned int base,unsigned int length,unsigned short 
     }       
 
 }
+
 void create_db_field(NOS_DB_HANDLE  *p_db,int filed)
 {
     int i;
     if (!icos_mbusdb_if_index_exists(p_db, if_index_cur)) 
     {
       printf("if index not existing - bus = %d\n", modbus_bus_no);
-
-     	
-      DB_entry_creation_for(0x0800,FIELD_TOTALENTRY,INPUT_REGISTER,p_db);//989 entries
+      DB_entry_creation_for(0x0800,FIELD_TOTALENTRY,INPUT_REGISTER,p_db); //2500 entries
 #if 0
       DB_entry_creation_for(0x0900,0x2B,INPUT_REGISTER);
       DB_entry_creation_for(0x0002,0x01,INPUT_REGISTER);
@@ -1806,7 +1853,8 @@ void *handler_func (void *ctx )
 	settimer(&fourthTimerID,0,10); //
 	settimer(&seventhTimerID,0,30);
 	settimer(&sixthTimerID,0,5);
-	settimer(&eighthTimerID,0,60000);
+	settimer(&eighthTimerID,180,0);
+	//settimer(&eighthTimerID,0,60000);
 	//settimer(&calibration_timerID,1,0);
 	 
 	while(1)
@@ -2501,7 +2549,7 @@ void timerHandler( int sig, siginfo_t *si, void *uc )
 	  }
 	  else
 	    wDemandChkCntr1s_10ms++;
-	  if (wDemandChkCntr1hr_10ms >= 36)
+	  if (wDemandChkCntr1hr_10ms >= 3600)
 	  {
 		sFlag.pnl1_demand_chk_1hr = 1;
 		sFlag.pnl2_demand_chk_1hr = 1;
@@ -2509,6 +2557,8 @@ void timerHandler( int sig, siginfo_t *si, void *uc )
 		sFlag.pnl4_demand_chk_1hr = 1;
 		wDemandChkCntr1hr_10ms = 0;
 		wDemandChkCntr24hr_10ms++;
+		//if(ntpsync_flag)
+	  		//ntptimesync();//753 for testing
 	  }
 	  if (wDemandChkCntr24hr_10ms >= 24)
 	  {
@@ -2516,13 +2566,9 @@ void timerHandler( int sig, siginfo_t *si, void *uc )
 		sFlag.pnl2_demand_chk_24hr = 1;
 		sFlag.pnl3_demand_chk_24hr = 1;
 		sFlag.pnl4_demand_chk_24hr = 1;
-
-		if(ntpsync_flag)
-		{
-			epochtime_cntr = 1500;
-		}
-
 		wDemandChkCntr24hr_10ms = 0;
+		if(ntpsync_flag)
+	  		ntptimesync();
 	  }
 	  settimer(&fourthTimerID,0,10);
 	}
@@ -2551,9 +2597,11 @@ void timerHandler( int sig, siginfo_t *si, void *uc )
 	else if (*tidp == eighthTimerID)
 	{
 	  cleartimer(&eighthTimerID);
-	  //counter for sending epochtime flag as 1
 	  if(ntpsync_flag)
-	  	epochtime_cntr = 1500;
+	  	ntptimesync();
+	  //counter for sending epochtime flag as 1
+	  //if(ntpsync_flag)
+	  	//epochtime_cntr = 1500;
 	}
 	
 	
@@ -2727,6 +2775,7 @@ unsigned int set_address(void )
 		dummy_parameter_offset = parameter_offset;
 		sptr++;
 		parameter_data = ((*sptr >> 8 )|(*sptr << 8));
+
 		/*if(temp_ptr->sensor_data[loop].can_id == 0x7f7)
 		{
 	         if (paraID == 0x50 || paraID == 0x51 || paraID == 0x60)
@@ -2801,19 +2850,25 @@ unsigned int set_address(void )
 
 		if ( paraID == DSP_PRIMARY_HI_ADDR)
 		{
-		  *(iptr + Offset) = result;
+			*(iptr + Offset) = result;
 
-		  //
-		  kVA_sqr = (unsigned long)(Data.word.Primary.KVA & 0xFFFF) * (unsigned long)(Data.word.Primary.KVA & 0xFFFF);
-		  kW_sqr = (unsigned long)(Data.word.Primary.KW & 0xFFFF) * (unsigned long)(Data.word.Primary.KW & 0xFFFF);
-		  Data.word.Primary.KVAR = (0x817<<16)|((unsigned int)sqrt(((unsigned long)kVA_sqr - (unsigned long)kW_sqr)) & 0xFFFF);
-		  //753
+			*(map + Offset) = (result & 0x0000FFFF);
 
-		  *(map + Offset) = (result & 0x0000FFFF);
-		  
-		  Reg[Offset].reg_d.reg_value = (result & 0x0000FFFF);
-		  
+			Reg[Offset].reg_d.reg_value = (result & 0x0000FFFF);
 
+			if(sboard_ver)
+			{
+				if((Offset == 23))
+				{
+					kVA_sqr = (unsigned long)(Data.word.Primary.KVA & 0xFFFF) * (unsigned long)(Data.word.Primary.KVA & 0xFFFF);
+					kW_sqr = (unsigned long)(Data.word.Primary.KW & 0xFFFF) * (unsigned long)(Data.word.Primary.KW & 0xFFFF);
+					Data.word.Primary.KVAR = (0x817<<16)|((unsigned int)sqrt(((unsigned long)kVA_sqr - (unsigned long)kW_sqr)) & 0xFFFF);
+
+					*(map + Offset) = ((unsigned int)sqrt(((unsigned long)kVA_sqr - (unsigned long)kW_sqr)) & 0xFFFF);
+
+					Reg[Offset].reg_d.reg_value = ((unsigned int)sqrt(((unsigned long)kVA_sqr - (unsigned long)kW_sqr)) & 0xFFFF);
+				}
+			}
 		}
 		else if (paraID == DSP_SEC_HI_ADDR)
 		{
@@ -2947,10 +3002,16 @@ void transmit_pkt(void )
 	struct can_frame temp_frame;
 	struct can_frame *temp_ptr = &temp_frame;
 	unsigned char buzzer_stat;
+	unsigned long kVA_sqr, kW_sqr;
 
 	/*******Sending Epochtime***********************************************************************///3216212 Aswin Krishna(16/11/21)
 
-	epochtime = (unsigned int)time(NULL);  
+	epochtime = (unsigned int)time(NULL);
+
+	//kVAR  
+	//kVA_sqr = (unsigned long)(Data.word.Primary.KVA & 0xFFFF) * (unsigned long)(Data.word.Primary.KVA & 0xFFFF);
+	//kW_sqr = (unsigned long)(Data.word.Primary.KW & 0xFFFF) * (unsigned long)(Data.word.Primary.KW & 0xFFFF);
+	//Data.word.Primary.KVAR = (0x817<<16)|((unsigned int)sqrt(((unsigned long)kVA_sqr - (unsigned long)kW_sqr)) & 0xFFFF);
 	
 	/*                      
     if(epochtime_cntr == 1000)
@@ -3768,16 +3829,16 @@ void Status_Update (unsigned int reg)
 		     alarm_flag = 0;
 		  }
 		}
-	    else if  ((!Data.word.Sec_Status_Flag.PhaseA_UnderVolt) || (Data.word.Sec_Status_Flag.PhaseB_UnderVolt) || (Data.word.Sec_Status_Flag.PhaseC_UnderVolt))
+		else if  ((!Data.word.Sec_Status_Flag.PhaseA_UnderVolt) || (Data.word.Sec_Status_Flag.PhaseB_UnderVolt) || (Data.word.Sec_Status_Flag.PhaseC_UnderVolt))
 		{
-		  if (event_flag[51])
-		  {
-		     dummy1 = 52;
-	             write(fd5[1],&dummy1,1);
-		     event_flag[51] = 0;
-		     alarm_status &= ~(1 << OP_UNDER_VOLTAGE);
-		     alarm_flag = 0;
-		  }
+			if (event_flag[51])
+			{
+				dummy1 = 52;
+				write(fd5[1],&dummy1,1);
+				event_flag[51] = 0;
+				alarm_status &= ~(1 << OP_UNDER_VOLTAGE);
+				alarm_flag = 0;
+		  	}
 		}
 		if ((Data.word.Sec_Status_Flag.PhaseA_OverVolt) || (Data.word.Sec_Status_Flag.PhaseB_OverVolt) || (Data.word.Sec_Status_Flag.PhaseC_OverVolt))
 		{
@@ -3986,7 +4047,7 @@ void Status_Update (unsigned int reg)
 			dummy1 = 37;
 			write(fd5[1],&dummy1,1);
 			event_flag[38] = 1;
-	                alarm_status |= (1 << NEUTRAL_CURRENT);
+	        alarm_status |= (1 << NEUTRAL_CURRENT);
 			alarm_flag = 0;
 		  }
 		}
@@ -4365,6 +4426,7 @@ void Status_Update (unsigned int reg)
  		  //********************************OVER CURRENT DEMAND Panel 1 Strip 1(12~21)*****************************//
 
 		  }
+
 		  if ((Data.array[PANEL14_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL11_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL12_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL13_OVERCURR_STATUS_FLAG] & 0x001FFFFF))
 		  {
 
@@ -4385,6 +4447,26 @@ void Status_Update (unsigned int reg)
 			  write(fd5[1],&dummy,1);
 			  event_flag[68] = 0;
 			  alarm_status &= ~(1 << BRANCH_OVER_CURRENT);
+			  alarm_flag = 0;
+			}
+		  }
+           
+		//7539
+		  if ((Data.array[SEC_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL11_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL12_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL13_UNDERCURR_STATUS_FLAG] & 0x001FFFFF))
+		  {
+		    if(!event_flag[62])
+			{
+			  event_flag[62] = 1;
+			  alarm_status |= (1 << BRANCH_UNDER_CURRENT);
+			  alarm_flag = 0;
+			}
+		  }
+		  else
+		  {
+			if(event_flag[62])
+			{
+			  event_flag[62] = 0;
+			  alarm_status &= ~(1 << BRANCH_UNDER_CURRENT);
 			  alarm_flag = 0;
 			}
 		  }
@@ -4587,60 +4669,71 @@ void Status_Update (unsigned int reg)
 			  *(map + PANEL22_OVERCURR_FLAG) &= (~alarm);}
 		
 		  //********************************OVER CURRENT Panel 1 Strip 2(12~21)*****************************//
-			  if (Data_In.word.wPanelAct[1].word.Active_Inactive[3] & alarm)
-			  {
-			    if((Data.array[RMS_0_OFFSET + 63 + i] & 0x0000FFFF) > ((Data_In.word.Max_Min_Limit[1][63+i]) & 0xFFFF))
+			if (Data_In.word.wPanelAct[1].word.Active_Inactive[3] & alarm)
+			{
+				if((Data.array[RMS_0_OFFSET + 63 + i] & 0x0000FFFF) > ((Data_In.word.Max_Min_Limit[1][63+i]) & 0xFFFF))
 				{
-				  Data.array[PANEL23_OVERCURR_STATUS_FLAG] |= alarm;
-				  *(map + PANEL23_OVERCURR_FLAG) |= (alarm);
+					Data.array[PANEL23_OVERCURR_STATUS_FLAG] |= alarm;
+					*(map + PANEL23_OVERCURR_FLAG) |= (alarm);
 				}
-			  else
-			  {
-				if((Data.array[RMS_0_OFFSET + 63 + i] & 0x0000FFFF) < (((Data_In.word.Max_Min_Limit[1][63+i]) & 0xFFFF) - BRANCH_OC_HYSTER))
+				else
 				{
-			  	  Data.array[PANEL23_OVERCURR_STATUS_FLAG] &= (~alarm);
-			  	  *(map + PANEL23_OVERCURR_FLAG) &= (~alarm);
+					if((Data.array[RMS_0_OFFSET + 63 + i] & 0x0000FFFF) < (((Data_In.word.Max_Min_Limit[1][63+i]) & 0xFFFF) - BRANCH_OC_HYSTER))
+					{
+						Data.array[PANEL23_OVERCURR_STATUS_FLAG] &= (~alarm);
+						*(map + PANEL23_OVERCURR_FLAG) &= (~alarm);
+					}
 				}
-			  }
 			}
 			else
 			{
-			  Data.array[PANEL23_OVERCURR_STATUS_FLAG] &= (~alarm);
-			  *(map + PANEL23_OVERCURR_FLAG) &= (~alarm);}
-            }
+			Data.array[PANEL23_OVERCURR_STATUS_FLAG] &= (~alarm);
+			*(map + PANEL23_OVERCURR_FLAG) &= (~alarm);}
+			}
 		    
-		    if ((Data.array[PANEL24_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL21_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL22_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL23_OVERCURR_STATUS_FLAG] & 0x001FFFFF))
-		     {
-				    
-			  if(!event_flag[69])
-			  {
-				 alarm_status |= (1 << BRANCH_OVER_CURRENT);
-				 
-				 alarm_flag = 0;
-     				 dummy = 68;
-				 write(fd5[1],&dummy,1);
-				 event_flag[69] = 1;
-				 
-				 
-				 
-				 	
-			  }
-		     }
-		    else 
-		     {
-			   if(event_flag[69])
-			   {
-				alarm_status &= ~(1 << BRANCH_OVER_CURRENT);
-				alarm_flag = 0;
-				dummy = 69;
-				write(fd5[1],&dummy,1);
-				event_flag[69] = 0;
-				
-				
-				
-			   }
-			  //}
-		     }
+			if ((Data.array[PANEL24_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL21_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL22_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL23_OVERCURR_STATUS_FLAG] & 0x001FFFFF))
+			{
+
+				if(!event_flag[69])
+				{
+					alarm_status |= (1 << BRANCH_OVER_CURRENT);
+					alarm_flag = 0;
+					dummy = 68;
+					write(fd5[1],&dummy,1);
+					event_flag[69] = 1;
+				}
+			}
+			else 
+			{
+				if(event_flag[69])
+				{
+					alarm_status &= ~(1 << BRANCH_OVER_CURRENT);
+					alarm_flag = 0;
+					dummy = 69;
+					write(fd5[1],&dummy,1);
+					event_flag[69] = 0;
+				}
+			}
+
+			if ((Data.array[PANEL14_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL21_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL22_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL23_UNDERCURR_STATUS_FLAG] & 0x001FFFFF))
+			{
+				if(!event_flag[63])
+				{
+					event_flag[63] = 1;
+					alarm_status |= (1 << BRANCH_UNDER_CURRENT);
+					alarm_flag = 0;
+				}
+			}
+			else
+			{
+				if(event_flag[63])
+				{
+					event_flag[63] = 0;
+					alarm_status &= ~(1 << BRANCH_UNDER_CURRENT);
+					alarm_flag = 0;
+				}
+			}
+      
 	       
 	        break;  
 		default:
@@ -6113,7 +6206,6 @@ void System_Status_Update(void)
 		wGroundCurrentCntr--;
 	  else
 	  {
-
 		if(event_flag[21])
 		{
 		  dummy1 = 22;
@@ -6483,7 +6575,7 @@ void AmbientTempCalc(void)
 	unsigned short AdcAmbientTemp;
 	unsigned short AdcAmbientTemp1;
 	AdcAmbientTemp = (unsigned short)((status_result >> 16) & 0xFFFF);
-	
+
 	AdcAmbientTemp1 = ((unsigned long long)(AdcAmbientTemp * 0xA5)/(0x32CD));
 
 	if(AdcAmbientTemp1 < 0x20)
@@ -6536,7 +6628,8 @@ static void icos_test_adc(int addr, int channel)
 	int fail_count[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
 	int struck_count[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
 	int fan_rec_count[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
-  
+	fan_num = temp_fannum;
+	
 	while(1) 
 	{
 		//Reads temperature data from ADC through i2c
@@ -6561,10 +6654,13 @@ static void icos_test_adc(int addr, int channel)
 		temperature_status = temp_data;	
 
 		//Checks for Fan failure for all the 8 fans considering 10 samples of each at a time
+		//fan_num = temp_fannum;
+
 		for(i = 0;i < fan_num;i++)
 		{
 			adc_flag = 1;
 			fan_alarm = 0x00000001 << i;
+
 			struck_count[i] = 0;
 			fail_count[i] = 0;
 			get_fan_status = get_adc_avg(adc_flag, chn_address[i], chn_number[i], &z_Offset[i], &fail_count[i], &struck_count[i]);
@@ -6586,6 +6682,7 @@ static void icos_test_adc(int addr, int channel)
 			{
 				fan_err_status &= (~fan_alarm);
 			}
+
 		}
 
 		temp_and_err_status = ((unsigned int)(temperature_status << 16)|fan_err_status);
@@ -6678,6 +6775,33 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no, int *avg_value, int *cou
 }
 
 
+
+void ntptimesync(void)
+{
+	//if(ntpsync_flag)
+	//{
+		ntp_fd = open("/home/root/ntp_update",O_RDONLY,S_IRUSR);
+		if(ntp_fd == -1)
+		{
+			printf("No ntp file present:");
+		}
+		else
+		{
+			system("/home/root/ntp_update");
+			//system("/usr/sbin/ntpdate -s -u 10.152.156.1");
+			//system("./ntp_update");
+			//printf("Synchronising time with ntp server\n");
+			//system("date");
+			//printf("ntpsync_flag\n");
+			epochtime_cntr = 1500;
+		}
+	//}
+	//else
+	//{
+	//	printf("Not in NTP mode\n");
+	//}
+	close(ntp_fd);
+}
 
 
 void config_process(void)
@@ -6853,7 +6977,6 @@ void config_process(void)
 	close(sysOPkwh_value_fd);
 
 	sysOPkwh_err_value_fd =open("/etc/sysOPkwherrvalue",O_RDONLY|S_IRUSR);
-
 	if(sysOPkwh_err_value_fd == -1)
 	{
 	  sysOPkwh_err_value_fd =open("/etc/sysOPkwherrvalue",O_RDWR|O_CREAT,S_IRUSR);
@@ -6868,6 +6991,7 @@ void config_process(void)
 	} 
 	close(sysOPkwh_err_value_fd);
 	j = 0;
+
   /***************End**************************************/
   
 	file_fd = open("/tmp/cnfgmode",O_RDWR|O_CREAT,S_IRUSR);
@@ -7040,42 +7164,6 @@ void config_process(void)
 	}
 	ret = write(fd3[1], writestatus, (2*1*84*(sizeof(unsigned int))));
 
-/****************** kwh reading from etc binary ******************/
-#if 0
-	k_loop = 0;
-	writestatus[k_loop] = (*(map_etc + KWH_PRIMARY) & 0xFFFF0000) >> 16;
-	k_loop++;
-	writestatus[k_loop] = *(map_etc + KWH_PRIMARY) & 0x0000FFFF;
-	ret = write(fd8[1], writestatus, (2*1*(sizeof(unsigned int))));
-
-	writestatus[0] = *(map_etc + KWHERROR_PRIMARY);	
-	ret = write(fd7[1], writestatus, (1*(sizeof(unsigned int))));
-	
-	for(k_loop=0;k_loop < 6;k_loop++)
-	{
-		writestatus[k_loop] = *(map_etc + KWH_SECONDARY + k_loop);
-	}
-	ret = write(fd10[1], writestatus, (3*2*(sizeof(unsigned int))));
-	
-	for(k_loop=0;k_loop < 3;k_loop++)
-	{
-		writestatus[k_loop] = *(map_etc + KWHERROR_SECONDARY + k_loop);
-	}
-	ret = write(fd9[1], writestatus, (3*1*(sizeof(unsigned int))));
-
-	for(k_loop=0;k_loop < 336;k_loop++)
-	{
-		writestatus[k_loop] = *(map_etc + KWH_PANEL1 + k_loop);
-	}
-	ret = write(fd4[1], writestatus, (2*2*84*(sizeof(unsigned int))));
-	
-	for(k_loop=0;k_loop < 168;k_loop++)
-	{
-		writestatus[k_loop] = *(map_etc + KWHERROR_PANEL1 + k_loop);
-	}
-	ret = write(fd3[1], writestatus, (2*1*84*(sizeof(unsigned int))));
-#endif
-
 	
 /*****************************************End***********************************************/
 
@@ -7125,23 +7213,7 @@ void config_process(void)
 		stime(&t);
 	}
 	*/
-	if(ntpsync_flag)
-	{
-		ntp_fd = open("/home/root/ntp_update",O_RDONLY,S_IRUSR);
-		if(ntp_fd == -1)
-		{
-			printf("No ntp file present:");
-		}
-		else
-		{
-			//system("./ntp_update");
-			system("/usr/sbin/ntpdate -s -u 10.152.156.1");
-			printf("Synchronising time with ntp server");
-			system("date");
-			printf("ntpsync_flag\n");
-		}
-	}
-	close(ntp_fd);
+	
 	
     /*************************** While loop starting ***************************/
 	while(1)
@@ -7978,6 +8050,9 @@ void* BAC_update(void* arg)
 {
 	unsigned int offset =0;
 	int* map = (int*)arg;
+
+	//*(map + 22) = kVAR; \\ 753 
+
 	while(1)
 	{
 	  Analog_Input_Present_Value_Set(offset,(int)*(map+offset));//BACnet 
