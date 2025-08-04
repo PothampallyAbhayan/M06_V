@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "shm.h": "c",
+        "random": "c",
+        "socket.h": "c"
+    }
+}

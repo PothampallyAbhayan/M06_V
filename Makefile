@@ -17,9 +17,9 @@ CC = arm-poky-linux-gnueabi-gcc
 
 INCLUDE_DIR = -I $(ROOT)/include	                                           \
               -I ./libmodbus/include/modbus/                                  \
-              -I ./bacnet-stack-0.8.6/include/                                \
-              -I ./bacnet-stack-0.8.6/demo/object/                            \
-              -I ./bacnet-stack-0.8.6/ports/linux/
+              -I ./bacnet-stack-0.8.7/include/                                \
+              -I ./bacnet-stack-0.8.7/demo/object/                            \
+              -I ./bacnet-stack-0.8.7/ports/linux/
 CFLAGS = -O0 -ggdb3
 
 #LIBS        = -L$(ROOT)/libs                                                \
@@ -49,7 +49,7 @@ LIBS        = -L$(ROOT)/libs                                                \
               -lnosdrivers                                                  \
               -lsqlite3                                                     \
               -li2c                                                         \
-              -L ./bacnet-stack-0.8.6/lib/                                  \
+              -L ./bacnet-stack-0.8.7/lib/                                  \
               -lbacnet
 #%.o: %.c $(DEPS)
 #	$(CC) $(CFLAGS)  -g -O -c $? $< $(CFLAGS)
@@ -58,11 +58,11 @@ LIBS        = -L$(ROOT)/libs                                                \
 	$(CC) $(CFLAGS) $(INCLUDE_DIR) -g -O -c $? $< $(CFLAGS)
 
 #can_mgr: can_mgr.o buffer.o
-#	$(CC) -o M_05F.linux buffer.o can_mgr.o $(LIBS)
+#	$(CC) -o M_06B.linux buffer.o can_mgr.o $(LIBS)
 can_mgr: can_mgr.o buffer.o ai.o bacfile.o bacmain.o device.o nc.o schedule.o trendlog.o
-	$(CC) $(CFLAGS) -o M_07T.linux buffer.o can_mgr.o ai.o bacfile.o bacmain.o device.o nc.o \
+	$(CC) $(CFLAGS) -o M_06C_T1.linux buffer.o can_mgr.o ai.o bacfile.o bacmain.o device.o nc.o \
        schedule.o trendlog.o $(LIBS)
 
 clean:
-	rm -rf M_07T.linux
+	rm -rf M_06C_T1.linux
 	rm -rf *.o

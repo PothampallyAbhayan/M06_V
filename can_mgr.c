@@ -1,6 +1,5 @@
-
 #include"support.h"
-#include"PDC.h"
+#include "PDC.h"
 #include "netinet/in.h"
 #include "arpa/inet.h"
 #include <sys/ipc.h>
@@ -9,6 +8,7 @@
 #include<time.h>
 #include<net/if.h>
 #include<sys/mman.h>
+#include<sys/prctl.h>
 #include<sys/stat.h>
 #include<unistd.h>
 #include<fcntl.h>
@@ -33,12 +33,15 @@ extern EE_SYS_INFO_UNION	wSysInfo;
 extern Can_data	Data;
 extern SYSTEM_STATUS_UPDATE	System_Status;
 
+
 /*************************** Extern functions ***************************/
 
 extern void *bacnet_handler(void *ctx);
 extern void Analog_Input_Present_Value_Set(uint32_t ,float );
 
 /************************ Function declaration ************************/
+
+void i2c_init(int bus_no);
 
 void create_db_field(NOS_DB_HANDLE  *,int );
 void DB_entry_creation_for(unsigned int ,unsigned int,unsigned short,NOS_DB_HANDLE* );
@@ -60,55 +63,63 @@ void ntptimesync(void);
 
 /********************** MACRO Definition for first 32 Events **********************/
 
-#define IP_UNDER_VOLTAGE            0
+#define IP_UNDER_VOLTAGE            0                   //0				cm(with and without transformer)   33
 
-#define IP_UNDER_CURRENT	    IP_UNDER_VOLTAGE + 1
+#define IP_UNDER_CURRENT	    IP_UNDER_VOLTAGE + 1    //1				//doubt    35
 
-#define IP_OVER_VOLTAGE		    IP_UNDER_CURRENT + 1
+#define IP_OVER_VOLTAGE		    IP_UNDER_CURRENT + 1 	//2				cm        39
 
-#define IP_OVER_CURRENT		    IP_OVER_VOLTAGE + 1
+#define IP_OVER_CURRENT		    IP_OVER_VOLTAGE + 1		//3				cm        66
 
-#define OP_UNDER_VOLTAGE 	    IP_OVER_CURRENT + 1
+#define OP_UNDER_VOLTAGE 	    IP_OVER_CURRENT + 1		//4				wt(with transformer)
 
-#define OP_UNDER_CURRENT	    OP_UNDER_VOLTAGE + 1
+#define OP_UNDER_CURRENT	    OP_UNDER_VOLTAGE + 1	//5				//doubt
 
-#define OP_OVER_VOLTAGE		    OP_UNDER_CURRENT + 1
+#define OP_OVER_VOLTAGE		    OP_UNDER_CURRENT + 1	//6				wt
 
-#define OP_OVER_CURRENT		    OP_OVER_VOLTAGE + 1
+#define OP_OVER_CURRENT		    OP_OVER_VOLTAGE + 1		//7				wt
 
-#define BRANCH_OVER_CURRENT	    OP_OVER_CURRENT + 1
+#define BRANCH_OVER_CURRENT	    OP_OVER_CURRENT + 1		//8				cm
 
-#define FAN_FAILURE		    BRANCH_OVER_CURRENT + 1
+#define FAN_FAILURE		    BRANCH_OVER_CURRENT + 1		//9				wt
 
-#define IP_BREAKER		    FAN_FAILURE + 1
+#define IP_BREAKER		    FAN_FAILURE + 1				//10			cm
 
-#define IP_BREAKER_TRIP		    IP_BREAKER + 1
+#define IP_BREAKER_TRIP		    IP_BREAKER + 1			//11			cm
 
-#define OP_BREAKER		    IP_BREAKER_TRIP + 1
+#define OP_BREAKER		    IP_BREAKER_TRIP + 1			//12			wt
 
-#define OP_BREAKER_TRIP	            OP_BREAKER + 1
+#define OP_BREAKER_TRIP	            OP_BREAKER + 1		//13			wt
 
-#define PANEL_OVERLOAD		    OP_BREAKER_TRIP + 1        
+#define PANEL_OVERLOAD		    OP_BREAKER_TRIP + 1        //14			cm
 
-#define PANEL_OVERLOAD_140	    PANEL_OVERLOAD + 1
+#define PANEL_OVERLOAD_140	    PANEL_OVERLOAD + 1		//15			cm
 
-#define XMR_OT		            PANEL_OVERLOAD_140 + 1
+#define XMR_OT		            PANEL_OVERLOAD_140 + 1	//16			wt
 
-#define POWER_FACTOR		    XMR_OT + 1
+#define POWER_FACTOR		    XMR_OT + 1				//17			cm
 
-#define NEUTRAL_CURRENT		    POWER_FACTOR + 1
+#define NEUTRAL_CURRENT		    POWER_FACTOR + 1		//18			cm
 
-#define OUTPUT_VTHD		    NEUTRAL_CURRENT + 1
+#define OUTPUT_VTHD		    NEUTRAL_CURRENT + 1			//19			cm
 
-#define OUTPUT_CTHD		    OUTPUT_VTHD + 1
+#define OUTPUT_CTHD		    OUTPUT_VTHD + 1				//20			cm
 
-#define PANEL_OL_TRIP		    OUTPUT_CTHD + 1
+#define PANEL_OL_TRIP		    OUTPUT_CTHD + 1			//21			cm
 
-#define AMBIENT_TEMP     PANEL_OL_TRIP + 1
+#define AMBIENT_TEMP     PANEL_OL_TRIP + 1				//22			cm
 
-#define GROUND_CURRENT  AMBIENT_TEMP + 1
+#define GROUND_CURRENT  AMBIENT_TEMP + 1				//23			cm
 
-#define BRANCH_UNDER_CURRENT   GROUND_CURRENT + 1
+#define REPO_ALARM 	 GROUND_CURRENT + 1					//24			cm
+	
+#define EPO_ALARM 	REPO_ALARM + 1						//25			cm
+
+#define SYSTEM_OL	EPO_ALARM + 1						//26			cm
+
+#define COMMON_ALARM  SYSTEM_OL + 1 					//27            
+
+//#define SPD_FAULT	COMMON_ALARM + 1	 
 
 /************************** MACRO for temp shared memory **************************/
 
@@ -183,7 +194,7 @@ void ntptimesync(void);
 #define CURR1_DEMAND           (sizeof(DSP_PANEL_PARAMETER)/4) + CURR0_DEMAND
 
 #define KW0_DEMAND       (sizeof(DSP_PANEL_PARAMETER)/4) + CURR1_DEMAND
-#define KW1_DEMAND	 (sizeof(DSP_PANEL_PARAMETER)/4) + KW0_DEMAND
+#define KW1_DEMAND	 	(sizeof(DSP_PANEL_PARAMETER)/4) + KW0_DEMAND
 
 #define MAX_CURR_DEMAND0       (sizeof(DSP_PANEL_PARAMETER)/4) + KW1_DEMAND
 #define MAX_CURR_DEMAND1       (sizeof(DSP_PANEL_PARAMETER)/4) + MAX_CURR_DEMAND0
@@ -195,6 +206,12 @@ void ntptimesync(void);
 #define KWH_S_OFFSET         KWH_P_OFFSET + 3
 #define KWH_B1_OFFSET        KWH_S_OFFSET + 84
 #define KWH_B2_OFFSET        KWH_B1_OFFSET + 84 
+
+#define OVER_CURR_STATUS0    (sizeof(DSP_PANEL_PARAMETER)/4 + KWH_B2_OFFSET)	
+#define OVER_CURR_STATUS1	 (sizeof(DSP_PANEL_PARAMETER)/4 + OVER_CURR_STATUS0) 
+
+#define ITHD0_OFFSET      (sizeof(DSP_PANEL_PARAMETER)/4 + OVER_CURR_STATUS1)  
+#define ITHD1_OFFSET      (sizeof(DSP_PANEL_PARAMETER)/4 + ITHD0_OFFSET)
 	
 
 /*************************** MACRO FOR CAN ***************************/
@@ -402,7 +419,8 @@ unsigned char  no_xfmr;
 unsigned int   no_xfmr_fd;
 unsigned int   panel_fd;   // For panel OL
 unsigned int   fan_cntr_fd;      // for fan_cntr parameters (04/02/22)
-unsigned int   thd_fd; 
+unsigned int   thd_fd;
+unsigned int   thlimits_fd; 
 unsigned int   dynamic_mappingfd;  // For Dynamic Mapping
 int buzz_silence_fd;       // Buzz_Silence FD
 int dry_contact_fd;        // Dry Contact FD
@@ -413,16 +431,19 @@ unsigned int  alarm_status = 0; // Alarm status byte
 volatile unsigned char alarm_flag = 0;
 unsigned int   fan_cntr = 0;
 
-unsigned short fan_num, temp_fannum;
-unsigned int fan_num_fd; 
+unsigned short fan_num,tprotate, temp_fannum,Kwh_data;
+unsigned int fan_num_fd,tprotate_fd,kwhvalue_fd; 
 unsigned int fan_bits;
 unsigned char  fannum_buff[10] = {0};
+unsigned char  tprotate_buff[10] = {0};
+unsigned char kwhvalue_buff[10] = {0};
 
 //useful to check time taken
 unsigned int jack;
 struct timeval stop_t, start_t;
 
-unsigned char  thd_buffer[100] = {0}; 
+unsigned char  thd_buffer[100] = {0};
+unsigned char  thl_buffer[100] = {0};
 
 //For fan offsets
 unsigned int fancalib_flagfd;
@@ -458,6 +479,7 @@ unsigned char  *cptr_panel_dummy;        // For panel OL
 unsigned char  dynamic_buffer[1500] = {0}; // For Dynamic Mapping
 unsigned char  *cptr_dynamic_dummy;
 unsigned char  *cptr_thd_dummy; 
+unsigned char  *cptr_thl_dummy; 
 volatile unsigned char flag;
 volatile unsigned char time_stamp_flag;
 volatile char pool_pos;
@@ -485,6 +507,14 @@ unsigned int wPhaseB_PanelCurrent[3];
 unsigned int wPhaseC_PanelCurrent[3];
 unsigned int wPDU_Parameters[25];                    // Added for Panel OL Alarm // Date : 13/07/2021
 unsigned int wTHD_Parameters[3]; 	// Added to read THD_parameters using Utility (15/11/21)
+unsigned int th_limits[4];
+
+unsigned int alarm_cnfg[2];  //enable all alarms by default;
+unsigned int alarm_cnfg_1;
+unsigned int alarm_cnfg_fd;
+unsigned char alarm_cnfg_buffer[100] = {0};
+unsigned char *cptr_alm_cnfg_dummy;
+
 unsigned int Dynamic_Buffer[84*NO_OF_SBOARDS];       // Added for Dynamic Mapping
 unsigned int fan_cntr_Parameters[5];  //added on 04/02/22
 unsigned int wMax_Panel_Limit;
@@ -512,7 +542,20 @@ unsigned long* pBAC_id = NULL;
 unsigned short  system_stat;
 static unsigned short op_breaker_status = 0;   // O/P breaker delay counter
 static unsigned short input_undervolt_count = 0; // Input UnderVolt delay counter
+static unsigned short output_undervolt_count = 0; // Output UnderVolt delay counter
+static unsigned short input_overvolt_count = 0;
+static unsigned short input_overcurrent_count = 0;
+static unsigned short output_overcurrent_count = 0;
+static unsigned short system_overload_count = 0;
+static unsigned short output_overvolt_count = 0;
+static unsigned short neutral_current_count = 0;
+static unsigned short branch_oc_count = 0;	//Branch overcurrent delay for panel 1
+static unsigned short branch_oc_count1 = 0;	//Branch Overcurrent delay for panel 2
+static unsigned short output_vthd_count = 0;
+static unsigned short output_cthd_count = 0;
+static unsigned short fan_failure_count = 0;
 static unsigned int branch_count = 0;
+
 sem_t semaphore_1;
 sensor_PKT *pkt_ptr = NULL;
 sensor_PKT  sensor_Rx_buffers[MAX_POOL_BUFFERS];
@@ -532,6 +575,7 @@ timer_t S_Board_Update_timer;			       // Timer for Updating S-Board Gain values
 unsigned int     calibration_flag = 1;
 unsigned int     calibration_count = 0;
 unsigned int fancalib_flag = 0;
+unsigned int tp_status=0;
 
 sigset_t mask;
 pthread_t p_thread,thread_w,tcp_thread;
@@ -549,7 +593,9 @@ modbus_t *mod_ctx,*mod_ctx1;
 modbus_t *tcp_ctx;
 modbus_mapping_t *mapping ;
 sensor_PKT *copy_CAN_Rx_to_buffer_2(sensor_PKT *p_ptr);
-unsigned char wMboard_Fw_Ver[16] = {'M','-','0','7','T',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' '};
+//unsigned char wMboard_Fw_Ver[16] = {'M','-','0','6','B',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' '};
+unsigned char    wMboard_Fw_Ver[8] = {'M','-','0','6','C','-','T','1'};
+unsigned char    stack_Fw_Ver[8] = {0};
 
 /****************************************** BACnet ******************************************/
 
@@ -577,10 +623,12 @@ unsigned short  ITHD_Buffer[84*NO_OF_SBOARDS];
 
 /*************************************** Child process ***************************************/
 
+int   processpid_fd;
 pid_t adc_pid;
 pid_t config_pid;
 pid_t event_pid;
 pid_t BACnet_pid;
+static unsigned long bac_counter=0;
 
 /***************************EpochTime**************************************************************************/
 
@@ -605,6 +653,143 @@ unsigned int status_count[5] = {0, 0, 0, 0, 0};
 
 /*********************************** Main function starts ***********************************/
 
+void waitpid_timeout_handler(int sig) {
+    printf("TIMEOUT: waitpid() hung for more than 5 seconds!\n");
+    dprintf(processpid_fd,"TIMEOUT: waitpid() hung for more than 5 seconds!\n");
+    // Force return from waitpid
+}
+
+void process_restart()
+{
+    int      status = 0;
+    pid_t    result = 0;
+    int      exit_code, death_signal;
+
+    printf("Parent's stored BACnet_pid before waitpid: %d\n", BACnet_pid);
+    dprintf(processpid_fd,"Checking BACnet Process (PID: %d) at time %d\n", BACnet_pid, time(NULL));
+    signal(SIGALRM, waitpid_timeout_handler);
+    alarm(5);
+    result = waitpid(BACnet_pid, &status, WNOHANG);
+    printf("Checking BACnet Process (PID: %d) at time %d\n", BACnet_pid, time(NULL));
+    dprintf(processpid_fd,"After Checking BACnet Process (PID: %d) at time %d\n", BACnet_pid, time(NULL));    
+    alarm(0);
+    while (waitpid(-1, NULL, WNOHANG) > 0);
+    if (result == BACnet_pid) {
+    // PROCESS DIED - ANALYZE HOW IT DIED
+    bac_counter++;
+    
+    printf("=== BACnet PROCESS DEATH ANALYSIS ===\n");
+    printf("Dead PID: %d\n", BACnet_pid);
+    printf("Status: 0x%x\n", status);
+    
+    // DECODE THE DEATH REASON
+    if (WIFEXITED(status)) {
+        exit_code = WEXITSTATUS(status);
+        printf("DEATH: Process exited with code %d\n", exit_code);
+        dprintf(processpid_fd, "Death: Exit code %d\n", exit_code);
+        
+        if (exit_code == 0) {
+            printf("REASON: Normal exit (BACnet_process returned)\n");
+        } else {
+            printf("REASON: Error exit (crash or failure)\n");
+        }
+        
+    } else if (WIFSIGNALED(status)) {
+        death_signal= WTERMSIG(status);
+        printf("DEATH: Killed by signal %d (%s)\n", death_signal, strsignal(death_signal));
+        dprintf(processpid_fd, "Death: Signal %d (%s)\n", death_signal, strsignal(death_signal));
+        
+        // IDENTIFY WHAT KILLED IT
+        switch(death_signal) {
+            case SIGKILL:
+                printf("REASON: Force killed (kill -9 or OOM killer)\n");
+                if (getpid() == 645) {  // If you're doing manual testing
+                    printf("LIKELY: Manual kill -9 for stress testing\n");
+                }
+                break;
+            case SIGTERM:
+                printf("REASON: Terminated (kill -15)\n");
+                printf("LIKELY: Manual kill -15 for stress testing\n");
+                break;
+            case SIGSEGV:
+                printf("REASON: Segmentation fault - memory error\n");
+                break;
+            case SIGPIPE:
+                printf("REASON: Network connection broken\n");
+                break;
+        }
+    }
+    printf("About to restart BACnet Process (PID: %d) at time %d\n", BACnet_pid, time(NULL));
+    dprintf(processpid_fd,"About to restart BACnet Process (PID: %d) at time %d\n", BACnet_pid, time(NULL));
+
+    if (result == BACnet_pid || (result == -1 && errno == ECHILD)) {
+        // Process died or not found - restart it
+        printf("BACnet process needs restart (waitpid result: %d)\n", result);
+        bac_counter++;
+        BACnet_pid = fork();
+        if (BACnet_pid == 0) {
+            // Child process - runs BACnet
+            bac_counter++;
+            prctl(PR_SET_NAME, "PDC2_Bacserv", 0, 0, 0);
+            printf("Restarted BACnet %d times - PID: %d\n",bac_counter, getpid());
+            dprintf(processpid_fd,"Restarted BACnet - PID: %d\n", getpid());
+            BACnet_process();
+            dprintf(processpid_fd,"AFter BACnet process - PID: %d\n", getpid());
+            exit(0);  // Never reached
+            dprintf(processpid_fd,"AFter exit - PID: %d\n", getpid());
+
+        } else if (BACnet_pid > 0) {
+            // Parent process - continues monitoring
+            printf("New BACnet process started with PID: %d\n", BACnet_pid);
+            dprintf(processpid_fd,"BACnet process Restarted %d started with PID: %d\n", bac_counter, BACnet_pid);
+        } else {
+            printf("Fork failed");
+            dprintf(processpid_fd,"Fork failed %dth time ERR:%d\n", bac_counter,errno );
+        }
+    } else if (result == 0) {
+        // Process is still alive
+        printf("BACnet process %d is running\n", BACnet_pid);
+    }   
+    dprintf(processpid_fd,"****************************************\n");
+    printf("****************************************\n");
+    }
+}
+
+void safe_nanosleep(int seconds) {
+    struct timespec req, rem;
+    req.tv_sec = seconds;
+    req.tv_nsec = 0;
+    
+    // Handle interruptions
+    while (nanosleep(&req, &rem) == -1) {
+        if (errno == EINTR) {
+            req = rem;  // Continue with remaining time
+        } else {
+            break;
+        }
+    }
+}
+
+int getfirmwareversion()
+{
+        FILE *file = fopen("/etc/stack_version","r");
+
+        if (file == NULL) {
+                perror("Error Opening the file");
+                return 1;
+        }
+
+        while(fgets(stack_Fw_Ver,sizeof(stack_Fw_Ver),file) != NULL) {
+                printf("%s",stack_Fw_Ver);
+        }
+
+        printf("stack version = %s\n",stack_Fw_Ver);
+
+        fclose(file);
+        return 0;
+
+}
+
 int main()
 {
     temp1_ptr->can_dlc = 8;
@@ -624,6 +809,7 @@ int main()
 	/**************************** Variables ****************************/
 
 	/************************* Signature byte *************************/
+
     int i=0;
     ssize_t ret_in;
     unsigned char buffer[10]= {0};
@@ -654,7 +840,6 @@ int main()
     int j;
     int mem_fd = 0;
     int result;
-
 
     /********************** UART PORT Opening & Initialisation **********************/
 
@@ -762,7 +947,7 @@ int main()
 	/******************************* Debug prints *******************************/
 
 	jack = KWH_B2_OFFSET;
-	printf("JACK = %d\n",jack);
+	//printf("JACK = %d\n",jack);
 
 	/**************************** ADC Initialisation ****************************/
     
@@ -786,18 +971,21 @@ int main()
 		dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[1]);
 		fan_cntr_Parameters[2] = 2;					
 		dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[2]);    
-		fan_cntr_Parameters[3] = 100;					
+		fan_cntr_Parameters[3] = 200; //7539 //changed to 200 from 100					
 		dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[3]);
 		fan_cntr_Parameters[4] = 9100;					
 		dprintf(fan_cntr_fd,"%d\n",fan_cntr_Parameters[4]);
 	}//else maybe required 7539
-	read(fan_cntr_fd ,fan_cntr_buffer,100);
-	cptr_fan_cntr_dummy = strtok(fan_cntr_buffer,"\n");
-	while(cptr_fan_cntr_dummy != NULL)
+	else
 	{
-		fan_cntr_Parameters[j] = atoi(cptr_fan_cntr_dummy);
-		cptr_fan_cntr_dummy = strtok(NULL,"\n");
-		j++;
+		read(fan_cntr_fd ,fan_cntr_buffer,100);
+		cptr_fan_cntr_dummy = strtok(fan_cntr_buffer,"\n");
+		while(cptr_fan_cntr_dummy != NULL)
+		{
+			fan_cntr_Parameters[j] = atoi(cptr_fan_cntr_dummy);
+			cptr_fan_cntr_dummy = strtok(NULL,"\n");
+			j++;
+		}
 	}
 	j=0;
 	close(fan_cntr_fd);
@@ -824,56 +1012,112 @@ int main()
 	close(fan_num_fd);
 	fan_bits = (1 << fan_num) - 1;
 	temp_fannum = fan_num;
-	fan_bits = (1 << fan_num) - 1;
+	//fan_bits = (1 << fan_num) - 1;
 
-	/********************************** Fan offset **********************************/
-	
-	fancalib_flagfd = open("/tmp/fancalib_flag",O_RDONLY,S_IRUSR);
-	if (fancalib_flagfd == -1)
-	{
-		fancalib_flagfd = open("/tmp/fancalib_flag",O_RDWR|O_CREAT,S_IRUSR);
-		if (fancalib_flagfd == -1)
-		{
-			perror("Error in fan offset flag file opening:");
-		}
-		dprintf(fancalib_flagfd,"%d\n",0);
-	}
-	read(fancalib_flagfd,fanflag_buffer,4);
-	fancalib_flag = atoi(fanflag_buffer);
 
-	if(!fancalib_flag)
+	/********************************* tprotate file *********************************/
+
+	tprotate_fd = open("/etc/tprotate",O_RDONLY,S_IRUSR);   
+	if(tprotate_fd == -1)
 	{
-		get_fan_offset();
-		fan_offsetfd = open("/tmp/fanoffset",O_RDWR|O_CREAT,S_IRUSR);
-		if (fan_offsetfd == -1)
+		
+		tprotate_fd = open("/etc/tprotate",O_RDWR|O_CREAT,S_IRUSR);
+		if ( tprotate_fd == -1 )
 		{
-			perror("Error in fan offset file opening:");
-		}
-		for (j = 0; j < fan_num; j++)
-		{
-			//printf("Into file : Fan Offset[%d] :  %d\n",j,z_Offset[j]);
-			dprintf(fan_offsetfd,"%d\n",z_Offset[j]);
-		}
-		//fancalib_flagfd = open("/tmp/fancalib_flag",O_RDWR|O_TRUNC,S_IRUSR);
-		lseek(fancalib_flagfd,0,SEEK_SET);
-		dprintf(fancalib_flagfd,"%d\n",1);	
-	}
+			perror("Error in tprotate file open:");
+			
+		} 
+		tprotate = 1;
+		dprintf(tprotate_fd,"%d\n",tprotate);  
+	} 
 	else
 	{
-		j = 0;
-		fan_offsetfd = open("/tmp/fanoffset",O_RDONLY,S_IRUSR);
-		read(fan_offsetfd,fanoffset_buffer,100);
-		cptr_offset_dummy = strtok(fanoffset_buffer,"\n");
-		while(cptr_offset_dummy != NULL)
+		read(tprotate_fd, tprotate_buff,4);
+		tprotate = atoi(tprotate_buff);
+		if(tprotate==0)
 		{
-			z_Offset[j] = atoi(cptr_offset_dummy);
-			//printf("From file : Fan Offset[%d] :  %d\n",j,z_Offset[j]);
-			cptr_offset_dummy = strtok(NULL,"\n");
-			j++;
+			tprotate=2;
 		}
+		Data.word.System_Parameter.Fan12RmsCurrent = ((0x60D << 16) | (tprotate));
+		tprotate = 2;
+	
 	}
-	close(fan_offsetfd);
-	close(fancalib_flagfd); 
+	close(tprotate_fd);
+	
+	
+
+	/***************************** No Transformer file  *****************************/
+
+	no_xfmr_fd =open("/etc/no_xfmr",O_RDONLY,S_IRUSR);
+	if(no_xfmr_fd == -1)
+	{
+		no_xfmr_fd = open("/etc/no_xfmr",O_RDWR|O_CREAT,S_IRUSR);
+		if ( no_xfmr_fd == -1 )
+		{
+			perror("Error in no xfmr file open:");
+		} 
+		no_xfmr = 1;
+		dprintf(no_xfmr_fd,"%d\n",no_xfmr); 
+	} 
+	else
+	{
+		read(no_xfmr_fd,buffer1,3);
+		no_xfmr = atoi(buffer1);
+		Data.word.System_Parameter.no_xfmr = ((0x602 << 16) | (no_xfmr));
+	}
+	close(no_xfmr_fd);
+
+	/********************************** Fan offset **********************************/
+
+	if(no_xfmr)
+	{
+		fancalib_flagfd = open("/tmp/fancalib_flag",O_RDONLY,S_IRUSR);
+		if (fancalib_flagfd == -1)
+		{
+			fancalib_flagfd = open("/tmp/fancalib_flag",O_RDWR|O_CREAT,S_IRUSR);
+			if (fancalib_flagfd == -1)
+			{
+				perror("Error in fan offset flag file opening:");
+			}
+			dprintf(fancalib_flagfd,"%d\n",0);
+		}
+		read(fancalib_flagfd,fanflag_buffer,4);
+		fancalib_flag = atoi(fanflag_buffer);
+
+		if(!fancalib_flag)
+		{
+			get_fan_offset();
+			fan_offsetfd = open("/tmp/fanoffset",O_RDWR|O_CREAT,S_IRUSR);
+			if (fan_offsetfd == -1)
+			{
+				perror("Error in fan offset file opening:");
+			}
+			for (j = 0; j < fan_num; j++)
+			{
+				//printf("Into file : Fan Offset[%d] :  %d\n",j,z_Offset[j]);
+				dprintf(fan_offsetfd,"%d\n",z_Offset[j]);
+			}
+			//fancalib_flagfd = open("/tmp/fancalib_flag",O_RDWR|O_TRUNC,S_IRUSR);
+			lseek(fancalib_flagfd,0,SEEK_SET);
+			dprintf(fancalib_flagfd,"%d\n",1);	
+		}
+		else
+		{
+			j = 0;
+			fan_offsetfd = open("/tmp/fanoffset",O_RDONLY,S_IRUSR);
+			read(fan_offsetfd,fanoffset_buffer,100);
+			cptr_offset_dummy = strtok(fanoffset_buffer,"\n");
+			while(cptr_offset_dummy != NULL)
+			{
+				z_Offset[j] = atoi(cptr_offset_dummy);
+				//printf("From file : Fan Offset[%d] :  %d\n",j,z_Offset[j]);
+				cptr_offset_dummy = strtok(NULL,"\n");
+				j++;
+			}
+		}
+		close(fan_offsetfd);
+		close(fancalib_flagfd); 
+	}
 
 	/******************************** ntp flag file ********************************/
 
@@ -886,16 +1130,14 @@ int main()
 			perror("Error in ntp sync flag file opening:");
 		}
 		dprintf(ntp_fd,"%d\n",0);
+		ntpsync_flag = 0;
 	}
-	read(ntp_fd,ntpflag_buffer,4);
-	ntpsync_flag = atoi(ntpflag_buffer);
-	close(ntp_fd);
-
-	//if(ntpsync_flag)
-	//{
-	//	epochtime_cntr = 1500;
-	//	jack = 0;
-	//}
+	else
+	{
+		read(ntp_fd,ntpflag_buffer,4);
+		ntpsync_flag = atoi(ntpflag_buffer);
+		close(ntp_fd);
+	}
 
 	/******************************** S board version offset ********************************/
 
@@ -912,6 +1154,11 @@ int main()
 	read(sb_fd,sb_flag_buffer,4);
 	sboard_ver = atoi(sb_flag_buffer);
 	close(sb_fd);
+
+
+        /******************************* Stack Version ******************************************/
+
+	getfirmwareversion();
 	
 	/****************************** PWM Initialisation ******************************/
 
@@ -960,64 +1207,64 @@ int main()
 	close(dynamic_mappingfd); 
 
 
-/*********************** NTP file *****************************************/
+	/*********************** NTP file *****************************************/
 
-/*
-	ntpserverfd = open("/etc/ntp_server",O_RDONLY,S_IRUSR);
-    if (ntpserverfd == -1)
-    {
-		ntpserverfd = open("/etc/ntp_server",O_RDWR|O_CREAT,S_IRUSR);
+	/*
+		ntpserverfd = open("/etc/ntp_server",O_RDONLY,S_IRUSR);
 		if (ntpserverfd == -1)
 		{
-			perror("Error in ntp_server opening:");
+			ntpserverfd = open("/etc/ntp_server",O_RDWR|O_CREAT,S_IRUSR);
+			if (ntpserverfd == -1)
+			{
+				perror("Error in ntp_server opening:");
+			}
+			dprintf(ntpserverfd,"/usr/sbin/ntpdate 10.152.156.1\n");
 		}
-		dprintf(ntpserverfd,"/usr/sbin/ntpdate 10.152.156.1\n");
-    }
-    else
-    {
-		read(ntpserverfd,ntp_buffer,40);
-		cptr_ntp_dummy = strtok(ntp_bufferr,"\n");
-		while(cptr_dynamic_dummy != NULL)
+		else
 		{
 			read(ntpserverfd,ntp_buffer,40);
-			cptr_ntp_dummy = strtok(ntpbuffer,"\n");
-			strcpy(ntp_ip,ntpbuffer);
-			cptr_ntp_dummy = strtok(NULL,"\n");
-			strcpy(ntp_port,cptr_ntp_dummy);
+			cptr_ntp_dummy = strtok(ntp_bufferr,"\n");
+			while(cptr_dynamic_dummy != NULL)
+			{
+				read(ntpserverfd,ntp_buffer,40);
+				cptr_ntp_dummy = strtok(ntpbuffer,"\n");
+				strcpy(ntp_ip,ntpbuffer);
+				cptr_ntp_dummy = strtok(NULL,"\n");
+				strcpy(ntp_port,cptr_ntp_dummy);
+			}
 		}
-    }
-    close(ntpserverfd); 
+		close(ntpserverfd); 
 
 
-	ntpserverfd = open("/home/root/ntp_update",O_RDONLY,S_IRUSR);
-    if (ntpserverfd == -1)
-    {
-		ntpserverfd = open("/etc/ntp_server",O_RDWR|O_CREAT,S_IRUSR);
+		ntpserverfd = open("/home/root/ntp_update",O_RDONLY,S_IRUSR);
 		if (ntpserverfd == -1)
 		{
-			perror("Error in ntp_server opening:");
+			ntpserverfd = open("/etc/ntp_server",O_RDWR|O_CREAT,S_IRUSR);
+			if (ntpserverfd == -1)
+			{
+				perror("Error in ntp_server opening:");
+			}
+			dprintf(ntpserverfd,"/usr/sbin/ntpdate -s -u 10.152.156.1\n");
 		}
-		dprintf(ntpserverfd,"/usr/sbin/ntpdate -s -u 10.152.156.1\n");
-    }
-    else
-    {
-		read(ntpserverfd,ntp_buffer,40);
-		cptr_ntp_dummy = strtok(ntp_bufferr,"\n");
-		while(cptr_dynamic_dummy != NULL)
+		else
 		{
 			read(ntpserverfd,ntp_buffer,40);
-			cptr_ntp_dummy = strtok(ntpbuffer,"\n");
-			strcpy(ntp_ip,ntpbuffer);
-			cptr_ntp_dummy = strtok(NULL,"\n");
-			strcpy(ntp_port,cptr_ntp_dummy);
+			cptr_ntp_dummy = strtok(ntp_bufferr,"\n");
+			while(cptr_dynamic_dummy != NULL)
+			{
+				read(ntpserverfd,ntp_buffer,40);
+				cptr_ntp_dummy = strtok(ntpbuffer,"\n");
+				strcpy(ntp_ip,ntpbuffer);
+				cptr_ntp_dummy = strtok(NULL,"\n");
+				strcpy(ntp_port,cptr_ntp_dummy);
+			}
 		}
-    }
-    close(ntpserverfd);
-*/ 
+		close(ntpserverfd);
+	*/ 
 
-/************* End **************************************************/
+	/************* End **************************************************/
 
-//To be removed 7539
+	//To be removed 7539
 	for (j = 0; j<12; j++)   
 	{
 		fan_err_cntr[j] = 0;
@@ -1030,7 +1277,7 @@ int main()
 	panel_fd = open("/etc/panelconfig",O_RDONLY,S_IRUSR);
 	if (panel_fd == -1)
 	{
-		panel_fd = open("/etc/panelconfig",O_RDWR|O_CREAT,S_IRUSR|S_IWUSR|S_IXUSR); //7539 Only S_IRUSR for mode
+		panel_fd = open("/etc/panelconfig",O_RDWR|O_CREAT,S_IRUSR); //7539 Only S_IRUSR for mode
 		if (panel_fd == -1)
 		{     
 			perror("Error in panelconfig openning:");
@@ -1117,31 +1364,76 @@ int main()
     Data.word.Sys.wNominal_OPVolt = ((0x107 << 16) | (wPDU_Parameters[19]));
     wMax_Panel_Limit = (unsigned int)((unsigned long long)(wPDU_Parameters[1] * wPDU_Parameters[21]))/100;
 
-	/***************************** No Transformer file  *****************************/
+	/************************** Alarm Thresholds file  **************************/
 
-	no_xfmr_fd =open("/etc/no_xfmr",O_RDONLY,S_IRUSR);
-	if(no_xfmr_fd == -1)
+	j=0;
+	thlimits_fd = open("/etc/thresholds",O_RDONLY,S_IRUSR);
+	if (thlimits_fd == -1)
 	{
-		no_xfmr_fd = open("/etc/no_xfmr",O_RDWR|O_CREAT,S_IRUSR);
-		if ( no_xfmr_fd == -1 )
-		{
-			perror("Error in no xfmr file open:");
-		} 
-		dprintf(no_xfmr_fd,"%d\n",1); 
-	} 
-	close(no_xfmr_fd);
-
-	//7539 else to be added
-	no_xfmr_fd = open("/etc/no_xfmr",O_RDONLY,S_IRUSR);
-	if (no_xfmr_fd == -1)
-	{
-		perror("Error in no xfmr file open:");
+		thlimits_fd = open("/etc/thresholds",O_RDWR|O_CREAT,S_IRUSR);
+		if (thlimits_fd == -1)
+		{     
+		perror("Error in thresholds openning:");
+		}
+		th_limits[0] = 10;							//Input Undervoltage
+		dprintf(thlimits_fd,"%d\n",th_limits[0]);
+		th_limits[1] = 10;							//Input Overvoltage
+		dprintf(thlimits_fd,"%d\n",th_limits[1]);
+		th_limits[2] = 10;							//Output Undervoltage
+		dprintf(thlimits_fd,"%d\n",th_limits[2]);
+		th_limits[3] = 10;							//Output Overvoltage
+		dprintf(thlimits_fd,"%d\n",th_limits[3]);
 	}
-	read(no_xfmr_fd,buffer1,3);
-	no_xfmr = atoi(buffer1);
-	Data.word.System_Parameter.no_xfmr = ((0x602 << 16) | (no_xfmr));
-	close(no_xfmr_fd);
+	else
+	{
+		read(thlimits_fd,thl_buffer,100);
+		cptr_thl_dummy = strtok(thl_buffer,"\n");
+		while(cptr_thl_dummy != NULL)
+		{
+			th_limits[j] = atoi(cptr_thl_dummy);
+			//printf("wTHD_Parameters[%d] %d\n",j,wTHD_Parameters[j]);
+			cptr_thl_dummy = strtok(NULL,"\n");
+			j++;
+		}
+	}
+	close(thlimits_fd);
+	j=0;
 
+	/************************** THD_Parameters file  **************************/
+	
+	thd_fd = open("/etc/thdparameters",O_RDONLY,S_IRUSR);
+	if (thd_fd == -1)
+	{
+		thd_fd = open("/etc/thdparameters",O_RDWR|O_CREAT,S_IRUSR);
+		if (thd_fd == -1)
+		{     
+			perror("Error in thdparameters openning:");
+		}
+		wTHD_Parameters[0] = 50;
+		dprintf(thd_fd,"%d\n",wTHD_Parameters[0]);
+		wTHD_Parameters[1] = 150;
+		dprintf(thd_fd,"%d\n",wTHD_Parameters[1]);
+		wTHD_Parameters[2] = 75;
+		dprintf(thd_fd,"%d\n",wTHD_Parameters[2]);    
+	}
+	else
+	{
+		read(thd_fd,thd_buffer,100);
+		cptr_thd_dummy = strtok(thd_buffer,"\n");
+		while(cptr_thd_dummy != NULL)
+		{
+			wTHD_Parameters[j] = atoi(cptr_thd_dummy);
+			//printf("wTHD_Parameters[%d] %d\n",j,wTHD_Parameters[j]);
+			cptr_thd_dummy = strtok(NULL,"\n");
+			j++;
+		}
+	}
+	j=0;
+	close(thd_fd);
+
+	wSec_Thd.word.wOverVoltTHD = (wTHD_Parameters[0] & 0xFFFF) ;  //*10
+	wSec_Thd.word.wOverCurrTHD = (wTHD_Parameters[1] & 0xFFFF) ;   //*10
+	wSec_Thd.word.wPowerfactor = (wTHD_Parameters[2] & 0xFFFF) ;   //*100
 
 	/*************************** Reading Signature byte  *****************************/
 
@@ -1175,6 +1467,42 @@ int main()
     buffer[4]=0;
     buffer[5]=0;
 
+    
+    /************ Alarm disable option - File ***********************/
+    
+    j = 0;
+    alarm_cnfg_fd = open("/etc/alarm_cnfg", O_RDONLY, S_IRUSR);
+    if(alarm_cnfg_fd == -1)
+    {	
+    	alarm_cnfg_fd = open("/etc/alarm_cnfg", O_RDWR|O_CREAT, S_IRUSR);
+    	if(alarm_cnfg_fd == -1)
+    	{
+    		perror("\n Error opening Alarm_cnfg file");
+		}
+		alarm_cnfg[0] = 0xFFFF;
+		dprintf(alarm_cnfg_fd, "%d\n", alarm_cnfg[0]);  
+		alarm_cnfg[1] = 0xFFFF;
+		dprintf(alarm_cnfg_fd, "%d\n", alarm_cnfg[1]);
+		
+	}
+	else
+	{
+		read(alarm_cnfg_fd, alarm_cnfg_buffer,100);
+		cptr_alm_cnfg_dummy = strtok(alarm_cnfg_buffer,"\n");
+		while(cptr_alm_cnfg_dummy != NULL)
+		{		
+			alarm_cnfg[j] = atoi(cptr_alm_cnfg_dummy);
+			cptr_alm_cnfg_dummy = strtok(NULL,"\n");
+			j++;
+		}			
+	}
+	close(alarm_cnfg_fd);
+	
+	printf("\n alarm_cnfg is %d and %d", alarm_cnfg[0],alarm_cnfg[1]);
+	alarm_cnfg_1 =(unsigned long) ((alarm_cnfg[1]<<16)|(alarm_cnfg[0]));
+	//printf("\n alarm_cnfg_1 is %d", alarm_cnfg_1);
+    
+
 	/******************************* Reading Slave ID  *******************************/
 	
 	do
@@ -1195,10 +1523,12 @@ int main()
 			ret_in = read(read_fd,buffer,3);
 			slave_id = atoi(buffer);
 			Data.word.System_Parameter.SlaveID = ((0x60E << 16) | (slave_id));
-			printf("slaveid is :%d\n",slave_id);       
+			printf("\n slaveid is :%d\n",slave_id);       
 		}
 		close(read_fd);
 	}while(flag);
+				
+
 
 	/********************************** DB Creation  *********************************/
 
@@ -1217,28 +1547,68 @@ int main()
 	
     Data.word.Sys.wSys_Fw_Ver[0] = (0x12C0000 | ((unsigned int)wMboard_Fw_Ver[0]<<8) | ((unsigned int)wMboard_Fw_Ver[1]));
     Data_nv.word.Sys.wSys_Fw_Ver[0] = (0x12C0000 | ((unsigned int)wMboard_Fw_Ver[0]<<8) | ((unsigned int)wMboard_Fw_Ver[1]));
-    Reg[STATUS_UPDATE + 44].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[0] & 0x0000FFFF);
+    Reg[STATUS_UPDATE + 38].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[0] & 0x0000FFFF);
+    *(map + STATUS_UPDATE + 38) = (Data.word.Sys.wSys_Fw_Ver[0] & 0x0000FFFF);
+    
     Data.word.Sys.wSys_Fw_Ver[1] = (0x12D0000 | ((unsigned int)wMboard_Fw_Ver[2]<<8) | ((unsigned int)wMboard_Fw_Ver[3]));
     Data_nv.word.Sys.wSys_Fw_Ver[1] = (0x12D0000 | ((unsigned int)wMboard_Fw_Ver[2]<<8) | ((unsigned int)wMboard_Fw_Ver[3]));
-    Reg[STATUS_UPDATE + 45].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[1] & 0x0000FFFF);
+    Reg[STATUS_UPDATE + 39].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[1] & 0x0000FFFF);
+    *(map + STATUS_UPDATE + 39) = (Data.word.Sys.wSys_Fw_Ver[1] & 0x0000FFFF);
+        
     Data.word.Sys.wSys_Fw_Ver[2] = (0x12E0000 | ((unsigned int)wMboard_Fw_Ver[4]<<8) | ((unsigned int)wMboard_Fw_Ver[5]));
     Data_nv.word.Sys.wSys_Fw_Ver[2] = (0x12E0000 | ((unsigned int)wMboard_Fw_Ver[4]<<8) | ((unsigned int)wMboard_Fw_Ver[5]));
-    Reg[STATUS_UPDATE + 46].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[2] & 0x0000FFFF);
+    Reg[STATUS_UPDATE + 40].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[2] & 0x0000FFFF);
+    *(map + STATUS_UPDATE + 40) = (Data.word.Sys.wSys_Fw_Ver[2] & 0x0000FFFF);
+    
     Data.word.Sys.wSys_Fw_Ver[3] = (0x12F0000 | ((unsigned int)wMboard_Fw_Ver[6]<<8) | ((unsigned int)wMboard_Fw_Ver[7]));
     Data_nv.word.Sys.wSys_Fw_Ver[3] = (0x12F0000 | ((unsigned int)wMboard_Fw_Ver[6]<<8) | ((unsigned int)wMboard_Fw_Ver[7]));
-    Reg[STATUS_UPDATE + 47].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[3] & 0x0000FFFF);
-    Data.word.Sys.wSys_Fw_Ver[4] = (0x1300000 | ((unsigned int)wMboard_Fw_Ver[8]<<8) | ((unsigned int)wMboard_Fw_Ver[9]));
-    Data_nv.word.Sys.wSys_Fw_Ver[4] = (0x1300000 | ((unsigned int)wMboard_Fw_Ver[8]<<8) | ((unsigned int)wMboard_Fw_Ver[9]));
-    Reg[STATUS_UPDATE + 48].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[4] & 0x0000FFFF);   
-    Data.word.Sys.wSys_Fw_Ver[5] = (0x1310000 | ((unsigned int)wMboard_Fw_Ver[10]<<8) | ((unsigned int)wMboard_Fw_Ver[11]));
-    Data_nv.word.Sys.wSys_Fw_Ver[5] = (0x1310000 | ((unsigned int)wMboard_Fw_Ver[10]<<8) | ((unsigned int)wMboard_Fw_Ver[11]));
-    Reg[STATUS_UPDATE + 49].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[5] & 0x0000FFFF);
-    Data.word.Sys.wSys_Fw_Ver[6] = (0x1320000 | ((unsigned int)wMboard_Fw_Ver[12]<<8) | ((unsigned int)wMboard_Fw_Ver[13]));
-    Data_nv.word.Sys.wSys_Fw_Ver[6] = (0x1320000 | ((unsigned int)wMboard_Fw_Ver[12]<<8) | ((unsigned int)wMboard_Fw_Ver[13]));
-    Reg[STATUS_UPDATE + 50].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[6] & 0x0000FFFF);
-    Data.word.Sys.wSys_Fw_Ver[7] = (0x1330000 | ((unsigned int)wMboard_Fw_Ver[14]<<8) | ((unsigned int)wMboard_Fw_Ver[15]));
-    Data_nv.word.Sys.wSys_Fw_Ver[7] = (0x1330000 | ((unsigned int)wMboard_Fw_Ver[14]<<8) | ((unsigned int)wMboard_Fw_Ver[15]));
-    Reg[STATUS_UPDATE + 51].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[7] & 0x0000FFFF);
+    Reg[STATUS_UPDATE + 41].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[3] & 0x0000FFFF);
+    *(map + STATUS_UPDATE + 41) = (Data.word.Sys.wSys_Fw_Ver[3] & 0x0000FFFF);
+    
+    Data.word.Sys.wStack_Fw_Ver[0] = (0x1300000 | ((unsigned int)stack_Fw_Ver[0]<<8) | ((unsigned int) stack_Fw_Ver[1]));
+    Data_nv.word.Sys.wStack_Fw_Ver[0] = (0x1300000 | ((unsigned int)stack_Fw_Ver[0]<<8) | ((unsigned int)stack_Fw_Ver[1]));
+    Reg[STATUS_UPDATE + 43].reg_d.reg_value = (Data.word.Sys.wStack_Fw_Ver[5] & 0x0000FFFF);
+    *(map + STATUS_UPDATE + 43) = (Data.word.Sys.wSys_Fw_Ver[5] & 0x0000FFFF);
+    printf("The final combined value 0 is: %#X\n", Data.word.Sys.wStack_Fw_Ver[0]);
+   
+    Data.word.Sys.wStack_Fw_Ver[1] = (0x1310000 | ((unsigned int)stack_Fw_Ver[2] << 8) | ((unsigned int)stack_Fw_Ver[3]));
+    Data_nv.word.Sys.wStack_Fw_Ver[1] = (0x1310000 | ((unsigned int)stack_Fw_Ver[2] << 8) | ((unsigned int)stack_Fw_Ver[3]));
+    Reg[STATUS_UPDATE + 43].reg_d.reg_value = (Data.word.Sys.wStack_Fw_Ver[1] & 0x0000FFFF);
+    *(map + STATUS_UPDATE + 43) = (Data.word.Sys.wStack_Fw_Ver[1] & 0x0000FFFF);
+    printf("The final combined value 1 is: %#X\n", Data.word.Sys.wStack_Fw_Ver[1]);
+
+    Data.word.Sys.wStack_Fw_Ver[2] = (0x1320000 | ((unsigned int)stack_Fw_Ver[4] << 8) | ((unsigned int)stack_Fw_Ver[5]));
+    Data_nv.word.Sys.wStack_Fw_Ver[2] = (0x1320000 | ((unsigned int)stack_Fw_Ver[4] << 8) | ((unsigned int)stack_Fw_Ver[5]));
+    Reg[STATUS_UPDATE + 44].reg_d.reg_value = (Data.word.Sys.wStack_Fw_Ver[2] & 0x0000FFFF);
+    *(map + STATUS_UPDATE + 44) = (Data.word.Sys.wStack_Fw_Ver[2] & 0x0000FFFF);
+    printf("The final combined value 2 is: %#X\n", Data.word.Sys.wStack_Fw_Ver[2]);
+    
+    Data.word.Sys.wStack_Fw_Ver[3] = (0x1330000 | ((unsigned int)stack_Fw_Ver[6] << 8) | ((unsigned int)stack_Fw_Ver[7]));
+    Data_nv.word.Sys.wStack_Fw_Ver[3] = (0x1330000 | ((unsigned int)stack_Fw_Ver[6] << 8) | ((unsigned int)stack_Fw_Ver[7]));
+    Reg[STATUS_UPDATE + 45].reg_d.reg_value = (Data.word.Sys.wStack_Fw_Ver[3] & 0x0000FFFF);
+    *(map + STATUS_UPDATE + 45) = (Data.word.Sys.wStack_Fw_Ver[3] & 0x0000FFFF); 
+    printf("The final combined value 3 is: %#X\n", Data.word.Sys.wStack_Fw_Ver[3]);
+
+//    Data.word.Sys.wSys_Fw_Ver[4] = (0x1300000 | ((unsigned int)wMboard_Fw_Ver[8]<<8) | ((unsigned int)wMboard_Fw_Ver[9]));
+//    Data_nv.word.Sys.wSys_Fw_Ver[4] = (0x1300000 | ((unsigned int)wMboard_Fw_Ver[8]<<8) | ((unsigned int)wMboard_Fw_Ver[9]));
+//    Reg[STATUS_UPDATE + 42].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[4] & 0x0000FFFF); 
+//    *(map + STATUS_UPDATE + 42) = (Data.word.Sys.wSys_Fw_Ver[4] & 0x0000FFFF);
+
+//    Data.word.Sys.wSys_Fw_Ver[5] = (0x1310000 | ((unsigned int)wMboard_Fw_Ver[10]<<8) | ((unsigned int)wMboard_Fw_Ver[11]));
+//    Data_nv.word.Sys.wSys_Fw_Ver[5] = (0x1310000 | ((unsigned int)wMboard_Fw_Ver[10]<<8) | ((unsigned int)wMboard_Fw_Ver[11]));
+//    Reg[STATUS_UPDATE + 43].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[5] & 0x0000FFFF);
+//    *(map + STATUS_UPDATE + 43) = (Data.word.Sys.wSys_Fw_Ver[5] & 0x0000FFFF);
+
+//    Data.word.Sys.wSys_Fw_Ver[6] = (0x1320000 | ((unsigned int)wMboard_Fw_Ver[12]<<8) | ((unsigned int)wMboard_Fw_Ver[13]));
+//    Data_nv.word.Sys.wSys_Fw_Ver[6] = (0x1320000 | ((unsigned int)wMboard_Fw_Ver[12]<<8) | ((unsigned int)wMboard_Fw_Ver[13]));
+//    Reg[STATUS_UPDATE + 44].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[6] & 0x0000FFFF);
+//    *(map + STATUS_UPDATE + 44) = (Data.word.Sys.wSys_Fw_Ver[6] & 0x0000FFFF);
+
+//    Data.word.Sys.wSys_Fw_Ver[7] = (0x1330000 | ((unsigned int)wMboard_Fw_Ver[14]<<8) | ((unsigned int)wMboard_Fw_Ver[15]));
+//    Data_nv.word.Sys.wSys_Fw_Ver[7] = (0x1330000 | ((unsigned int)wMboard_Fw_Ver[14]<<8) | ((unsigned int)wMboard_Fw_Ver[15]));
+//    Reg[STATUS_UPDATE + 45].reg_d.reg_value = (Data.word.Sys.wSys_Fw_Ver[7] & 0x0000FFFF);
+//    *(map + STATUS_UPDATE + 45) = (Data.word.Sys.wSys_Fw_Ver[7] & 0x0000FFFF);
+
 
 	/****************************** Copying IP Number  ******************************/
 
@@ -1252,20 +1622,21 @@ int main()
     Data.word.Sys.IPAddress[0] = ((0x136 << 16 ) | (*sip_ptr));
     printf("\nIPAdress1 : %x\n",Data.word.Sys.IPAddress[0]);
     Data_nv.word.Sys.IPAddress[0] = ((0x136 << 16 ) | (*sip_ptr));
-    Reg[STATUS_UPDATE + 53].reg_d.reg_value = (Data.word.Sys.IPAddress[0] & 0x0000FFFF);
+    Reg[FW_VERSION0 + 1].reg_d.reg_value = (Data.word.Sys.IPAddress[0] & 0x0000FFFF);
+    *(map + FW_VERSION0 + 1) = (Data.word.Sys.IPAddress[0] & 0x0000FFFF);
+
     
     *++sip_ptr;
     Data.word.Sys.IPAddress[1] = ((0x137 << 16 ) | (*sip_ptr));
     printf("\nIPAdress2 : %x\n",Data.word.Sys.IPAddress[1]);
     Data_nv.word.Sys.IPAddress[0] = ((0x136 << 16 ) | (*sip_ptr));
-    Reg[STATUS_UPDATE + 54].reg_d.reg_value = (Data.word.Sys.IPAddress[1] & 0x0000FFFF);
+    Reg[FW_VERSION0 + 2].reg_d.reg_value = (Data.word.Sys.IPAddress[1] & 0x0000FFFF);
+    *(map + FW_VERSION0 + 2) = (Data.word.Sys.IPAddress[1] & 0x0000FFFF);
 
 	sprintf(IPbuffer, "\n%d.%d.%d.%d\n",((Data.word.Sys.IPAddress[0] & 0xFF)), (((Data.word.Sys.IPAddress[0] & 0xFFFF) >> 8) & 0x00FF), ((Data.word.Sys.IPAddress[1] & 0xFF)), (((Data.word.Sys.IPAddress[1] & 0xFFFF) >> 8) & 0x00FF));
 	printf("IP Address : %s\n",IPbuffer);
 
-  
-  
-  /***************** creating a new /etc/kwhdata file if it doesn't exit ************/
+	/***************** creating a new /etc/kwhdata file if it doesn't exit ************/
 
 	int result_kwh;
 	int kwhdata_check_fd;
@@ -1305,7 +1676,7 @@ int main()
 		}
 		close(kwhdata_fd);    
   	
-  /********* kwh values are taken from text file and written to map_etc hence /etc/kwhdata *********/	
+  	/********* kwh values are taken from text file and written to map_etc hence /etc/kwhdata *********/	
     
 		i = 0;
 		kwhtxt_fd = open("/etc/sysIPkwhvalue",O_RDWR|S_IRUSR);
@@ -1358,6 +1729,7 @@ int main()
 			while(i < 344)
 			{
 				*(map_etc + i) = 0;
+				printf("kwhvalue = %d \n",*(map_etc + i));
 				i++;
 			}	
 		}
@@ -1450,103 +1822,112 @@ int main()
 		}
 	}
 
-	/****************** end ***********************************/ 
-
- 	/**********New process******************/
+	/********************************** New process  *********************************/
  	
-    printf("\nNew process starts\n");
-    if (pipe(fd1)==-1) 
-    { 
-      fprintf(stderr, "Pipe1 Failed" ); 
-      return 1; 
-    }
-    if (pipe(fd2)==-1) 
-    { 
-      fprintf(stderr, "Pipe2 Failed" ); 
-      return 1; 
-    }  
-    if (pipe(fd3)==-1) 
-    { 
-	  fprintf(stderr, "Pipe3 Failed" ); 
-      return 1; 
-    } 
-    if (pipe(fd4)==-1) 
-    { 
-      fprintf(stderr, "Pipe4 Failed" ); 
-      return 1; 
-    }
-    if (pipe(fd5) == -1)
-    {
-      fprintf(stderr, "Pipe5 Failed");
-      return 1;
-    }
-    if (pipe(fd7)==-1) 
-    { 
-      fprintf(stderr, "Pipe7 Failed" ); 
-      return 1; 
-    }   
-    if (pipe(fd8)==-1) 
-    { 
-      fprintf(stderr, "Pipe8 Failed" ); 
-      return 1; 
-    }
-    if (pipe(fd9)==-1) 
-    { 
-      fprintf(stderr, "Pipe9 Failed" ); 
-      return 1; 
-    }   
-    if (pipe(fd10)==-1) 
-    { 
-      fprintf(stderr, "Pipe10 Failed" ); 
-      return 1; 
-    }   
+	printf("\nNew process starts\n");
+	if (pipe(fd1)==-1) 
+	{ 
+		fprintf(stderr, "Pipe1 Failed" ); 
+		return 1; 
+	}
+	if (pipe(fd2)==-1) 
+	{ 
+		fprintf(stderr, "Pipe2 Failed" ); 
+		return 1; 
+	}  
+	if (pipe(fd3)==-1) 
+	{ 
+		fprintf(stderr, "Pipe3 Failed" ); 
+		return 1; 
+	} 
+	if (pipe(fd4)==-1) 
+	{ 
+		fprintf(stderr, "Pipe4 Failed" ); 
+		return 1; 
+	}
+	if (pipe(fd5) == -1)
+	{
+		fprintf(stderr, "Pipe5 Failed");
+		return 1;
+	}
+	if (pipe(fd7)==-1) 
+	{ 
+		fprintf(stderr, "Pipe7 Failed" ); 
+		return 1; 
+	}   
+	if (pipe(fd8)==-1) 
+	{ 
+		fprintf(stderr, "Pipe8 Failed" ); 
+		return 1; 
+	}
+	if (pipe(fd9)==-1) 
+	{ 
+		fprintf(stderr, "Pipe9 Failed" ); 
+		return 1; 
+	}   
+	if (pipe(fd10)==-1) 
+	{ 
+		fprintf(stderr, "Pipe10 Failed" ); 
+		return 1; 
+	}   
 
-    /*************added for creating process pid file********************/
-    
-    int processpid_fd;
-    
-	processpid_fd = open("/etc/process_pid",O_RDWR|O_CREAT|O_TRUNC,S_IRUSR);
+	/********************************** Process ID  *********************************/
+        
+	processpid_fd = open("/tmp/process_pid",O_RDWR|O_CREAT|O_TRUNC,S_IRUSR);
 	if (processpid_fd == -1)
 	{     
-	   perror("Error in process_id openning:");
+		perror("Error in process_id openning:");
 	}
-    adc_pid = fork();
-    if(adc_pid == 0)
-    {
-      dprintf(processpid_fd,"ADC process PID : %d\n",getpid());
-      printf("ADC process PID : %d\n", getpid());
-      ADC_process();
-    }
-    config_pid = fork();
-    if(config_pid == 0)
-    {
-      dprintf(processpid_fd,"Config process PID : %d\n",getpid());
-      printf("Config process PID : %d\n", getpid());
-      config_process();
-    }
-    event_pid = fork();
-    if(event_pid == 0)
-    {
-      dprintf(processpid_fd,"Event process PID : %d\n",getpid());
-      printf("Event process PID : %d\n", getpid());   
-      event_process();
-    }
-    if(signature & (1<<4))
-    {
-      BACnet_pid = fork();
-      if(BACnet_pid == 0)
-      {
+	adc_pid = fork();
+	if(adc_pid == 0)
+	{
+        if (prctl(PR_SET_NAME, "PDC2_Adc", 0, 0, 0) == -1) {
+            printf("prctl failed");
+        }
+        dprintf(processpid_fd,"ADC process PID : %d\n",getpid());
+		printf("ADC process PID : %d\n", getpid());
+		ADC_process();
+	}
+	config_pid = fork();
+	if(config_pid == 0)
+	{
+		if (prctl(PR_SET_NAME, "PDC2_Config", 0, 0, 0) == -1) {
+                    printf("prctl failed");
+                }
+		dprintf(processpid_fd,"Config process PID : %d\n",getpid());
+		printf("Config process PID : %d\n", getpid());
+		config_process();
+	}
+	event_pid = fork();
+	if(event_pid == 0)
+	{       
+        if (prctl(PR_SET_NAME, "PDC2_Event", 0, 0, 0) == -1) {
+            printf("prctl failed");
+        }
+		dprintf(processpid_fd,"Event process PID : %d\n",getpid());
+		printf("Event process PID : %d\n", getpid());   
+		event_process();
+	}
+	if(signature & (1<<4))
+	{
+		BACnet_pid = fork();
+		if(BACnet_pid == 0)
+        {
+		if (prctl(PR_SET_NAME, "PDC2_Bacserv", 0, 0, 0) == -1) {
+                    printf("prctl failed");
+        }
 		dprintf(processpid_fd,"BACnet process PID : %d\n",getpid());
 		printf("BACnet process PID : %d\n", getpid());
-        BACnet_process();
-      }
-    }
-    close(processpid_fd);
+		BACnet_process();
+		}
+	}
 
 
 	for (i=0; i<64; i++)
-	  event_flag[i] = 0;
-/**********End ***************/  
+		event_flag[i] = 0;
+
+	/********************************** Timer IDs  *********************************/
+    
     maketimer(&secondTimerID); //10ms
     maketimer(&firstTimerID); //10ms
     maketimer(&thirdTimerID); //10ms
@@ -1557,12 +1938,14 @@ int main()
     //maketimer(&calibration_timerID);   // 1s
     //maketimer(&S_Board_Update_timer);  // 5s
 
+	/******************************* Creating threads *******************************/
+
 	if(pthread_create(&thread_w,NULL,write_message,NULL))
 	{
 	  printf("thread create error\n");
 	  return -1;
 	}
-	if ( pthread_create(&p_thread, NULL, handler_func, (void*)&p_ctx) != 0 )
+	if (pthread_create(&p_thread, NULL, handler_func, (void*)&p_ctx) != 0 )
 	{
 	  return (-1);
 	}
@@ -1580,6 +1963,33 @@ int main()
 	 printf("DB thread failed creation\n");
 	 return -1;
 	}
+
+	while(1) { 		                           
+           process_restart();
+           safe_nanosleep(5);
+        }
+        /*time_t last_check = 0;
+        time_t current_time;
+        printf("Starting time-based BACnet monitoring...\n");
+        while(1) {
+        current_time = time(NULL);
+        
+        // Check every 5 seconds
+        if (current_time - last_check >= 5) {
+            printf("Checking BACnet at time: %ld\n", current_time);
+            
+            if (signature & (1<<4)) {
+                process_restart();
+            }
+            
+            last_check = current_time;
+        }
+        
+        // Short sleep to prevent 100% CPU usage
+        usleep(100000);  // 100ms
+        }*/
+        dprintf(processpid_fd,"Escaped Infinite loop\n");
+        close(processpid_fd);
 	pthread_join(thread_w,NULL);
 	pthread_join(p_thread,NULL);
     pthread_join(shm_thread,NULL);
@@ -1595,10 +2005,10 @@ void DB_entry_creation_for(unsigned int base,unsigned int length,unsigned short 
     printf("\nEntry : %d\n",if_index_start);
     for (i=0;i<=(length);i++)
     {
-	  icos_mbusdb_create_reg_interface( p_db_dummy, if_index_start,
-	  modbus_bus_no, slave_id, base,  reg_type);
-	  if_index_start++;
-	  base++;
+		icos_mbusdb_create_reg_interface( p_db_dummy, if_index_start,
+		modbus_bus_no, slave_id, base,  reg_type);
+		if_index_start++;
+		base++;
     }       
 
 }
@@ -1677,7 +2087,8 @@ void create_db_field(NOS_DB_HANDLE  *p_db,int filed)
 
       printf("\n DB Entry created\n");
     }
-    else {
+    else 
+	{
         printf("if index existing\n");
     }
 }
@@ -1770,9 +2181,9 @@ void *uart_handler (void *ctx1)
 
 void *handler_func (void *ctx )
 {
-    unsigned int dummy;
+	unsigned int dummy;
 	THREAD_CTX  thread_ctx;
-        //char read_buffer[5];
+	//char read_buffer[5];
 	fd_set temp_RD_fd,temp_WR_fd;
 	int ret = -1;
 	int nbytes;
@@ -1782,8 +2193,8 @@ void *handler_func (void *ctx )
 	int *dat;
 	int value = -1;
 	int i;
-    int uart;
-    int j = 0;
+	int uart;
+	int j = 0;
 	int dry = 0;
 	int dry1 = 0;
 	static int fd2_count = 0;
@@ -1860,90 +2271,52 @@ void *handler_func (void *ctx )
 	while(1)
 	{
 
-	  /******************* Reading the DRY Contact Configuration ****/
+		/******************* Reading the DRY Contact Configuration ****/
+
 		j=0;
-	  dry_contact_fd = open("/etc/dry_contact",O_RDONLY,S_IRUSR);
-	  if (dry_contact_fd == -1)
-	  {
-            dry_contact_fd = open("/etc/dry_contact",O_RDONLY|O_CREAT,S_IRUSR);
-	    if(dry_contact_fd == -1)
-            {
-	      perror("Error opening dry_contact file");
-            }
-	  }
-	  read(dry_contact_fd,dry_buffer,50);
-	  cptr_dry_dummy = strtok(dry_buffer,"\n");
-	  while(cptr_dry_dummy != NULL)
-	   {
-	     dry_contact_flag[dry] = atoi(cptr_dry_dummy);
-	     //printf("\nThe details of Dry contact %d : %d\n",dry+1,dry_contact_flag[dry]);
-	     cptr_dry_dummy = strtok(NULL,"\n");
-	     dry++;
-	   }
-	  dry=0;
-	  close(dry_contact_fd);
+		dry_contact_fd = open("/etc/dry_contact",O_RDONLY,S_IRUSR);
+		if (dry_contact_fd == -1)
+		{
+			dry_contact_fd = open("/etc/dry_contact",O_RDONLY|O_CREAT,S_IRUSR);
+			if(dry_contact_fd == -1)
+			{
+			perror("Error opening dry_contact file");
+			}
+		}
+		read(dry_contact_fd,dry_buffer,50);
+		cptr_dry_dummy = strtok(dry_buffer,"\n");
+		while(cptr_dry_dummy != NULL)
+		{
+			dry_contact_flag[dry] = atoi(cptr_dry_dummy);
+			//printf("\nThe details of Dry contact %d : %d\n",dry+1,dry_contact_flag[dry]);
+			cptr_dry_dummy = strtok(NULL,"\n");
+			dry++;
+		}
+		dry=0;
+		close(dry_contact_fd);
 	  
 
-	  dry_contact_on_off_fd = open("/etc/dry_contact_ON_OFF",O_RDONLY,S_IRUSR);
-	  if (dry_contact_on_off_fd == -1)
-	  {
-		dry_contact_on_off_fd = open("/etc/dry_contact_ON_OFF",O_RDONLY|O_CREAT,S_IRUSR);
+		dry_contact_on_off_fd = open("/etc/dry_contact_ON_OFF",O_RDONLY,S_IRUSR);
 		if (dry_contact_on_off_fd == -1)
-                {
-	  	   perror("Error in dry_contact_ON_OFF file open:");
-                }	
-	  }
-	  read(dry_contact_on_off_fd,dry_buffer1,24);
-	  cptr_dry_dummy = strtok(dry_buffer1,"\n");
-	  while(cptr_dry_dummy != NULL)
-	  {
-	     dry_on_off_flag[dry1] = atoi(cptr_dry_dummy);
-	     //printf("\nThe details of Dry contact %d : %d\n",dry1+1,dry_on_off_flag[dry1]);
-	     cptr_dry_dummy = strtok(NULL,"\n");
-	     dry1++;
-	  }
-	  dry1 = 0;
-	  close(dry_contact_on_off_fd);
+		{
+			dry_contact_on_off_fd = open("/etc/dry_contact_ON_OFF",O_RDONLY|O_CREAT,S_IRUSR);
+			if (dry_contact_on_off_fd == -1)
+			{
+			perror("Error in dry_contact_ON_OFF file open:");
+			}	
+		}
+		read(dry_contact_on_off_fd,dry_buffer1,24);
+		cptr_dry_dummy = strtok(dry_buffer1,"\n");
+		while(cptr_dry_dummy != NULL)
+		{
+			dry_on_off_flag[dry1] = atoi(cptr_dry_dummy);
+			//printf("\nThe details of Dry contact %d : %d\n",dry1+1,dry_on_off_flag[dry1]);
+			cptr_dry_dummy = strtok(NULL,"\n");
+			dry1++;
+		}
+		dry1 = 0;
+		close(dry_contact_on_off_fd);
     
-
-	  /******************* END **************************************/
-
-	  /************ Open the file corresponding to THD_Parameters ***********************************************************************/
-	j=0;
-    thd_fd = open("/etc/thdparameters",O_RDONLY,S_IRUSR);
-    if (thd_fd == -1)
-    {
-     thd_fd = open("/etc/thdparameters",O_RDWR|O_CREAT,S_IRUSR);
-     if (thd_fd == -1)
-     {     
-      perror("Error in thdparameters openning:");
-     }
-     wTHD_Parameters[0] = 50;
-     dprintf(thd_fd,"%d\n",wTHD_Parameters[0]);
-     wTHD_Parameters[1] = 150;
-     dprintf(thd_fd,"%d\n",wTHD_Parameters[1]);
-     wTHD_Parameters[2] = 75;
-     dprintf(thd_fd,"%d\n",wTHD_Parameters[2]);
-          
-    }
-    read(thd_fd,thd_buffer,100);
-    cptr_thd_dummy = strtok(thd_buffer,"\n");
-    while(cptr_thd_dummy != NULL)
-    {
-      wTHD_Parameters[j] = atoi(cptr_thd_dummy);
-      //printf("wTHD_Parameters[%d] %d\n",j,wTHD_Parameters[j]);
-      cptr_thd_dummy = strtok(NULL,"\n");
-      j++;
-    }
-    j=0;
-    close(thd_fd);
-
-	wSec_Thd.word.wOverVoltTHD = (wTHD_Parameters[0] & 0xFFFF) ;  //*10
-	wSec_Thd.word.wOverCurrTHD = (wTHD_Parameters[1] & 0xFFFF) ;   //*10
-	wSec_Thd.word.wPowerfactor = (wTHD_Parameters[2] & 0xFFFF) ;   //*100
-    
-
-/************************************ END ***********************************************************************************/ 
 	  /******************* Reading Buzzer Silence File *************/
 
 	  buzz_silence_fd = open("/tmp/buzz_silence",O_RDONLY,S_IRUSR);
@@ -1976,11 +2349,38 @@ void *handler_func (void *ctx )
 	    {
 		  read(fd1[0], &status_result, 4); 
 		  Data.word.System_Status.Fan_status = (unsigned short) ((status_result) & fan_bits);  //0x00ff changes to fan bits
+		  
+		  //Sending Individual Fan Status through Communication
+		  
+		  int i,x;
+		  
+		  for (i=0 ; i< fan_num ; i++)
+		  {
+		  	x = pow(2,i);
+		  	if((Data.word.System_Status.Fan_status & x) == x)
+		  	{
+		  		Reg[OVER_CURR_STATUS1 + i ].reg_d.reg_value = 0xFFFF;
+				*(map + OVER_CURR_STATUS1 + i ) = 0xFFFF;
+		  			
+			}
+			else 
+			{
+				Reg[OVER_CURR_STATUS1 + i].reg_d.reg_value = 0x0000;
+				*(map + OVER_CURR_STATUS1 + i) = 0x0000;	
+			}
+			 
+		  }
+
                   
 			if (no_xfmr)
 			{
 				if ((Data.word.System_Status.Fan_status == 0))
 				{ 
+					fan_failure_count ++;
+					if(fan_failure_count >= 13)
+					{
+
+					
 					if(event_flag[3])
 					{
 						dummy = 4;
@@ -1989,10 +2389,11 @@ void *handler_func (void *ctx )
 						alarm_status &= ~(1 << FAN_FAILURE);
 						alarm_flag = 0;
 					}
+					}
 				}
 				else if (Data.word.System_Status.Fan_status != 0)
 				{
-					
+					fan_failure_count = 0;
 					if(!event_flag[3])
 					{
 						dummy = 3;
@@ -2149,7 +2550,6 @@ sensor_PKT *copy_CAN_Rx_to_buffer_2(sensor_PKT *p_ptr)
 
 	if((p_ptr == NULL))
 	{
-
 	  pthread_mutex_lock(&lock2);
 	  p_ptr = release_pkt_from_free_pool(Rx_PKT);
 	  pthread_mutex_unlock(&lock2);
@@ -2160,7 +2560,6 @@ sensor_PKT *copy_CAN_Rx_to_buffer_2(sensor_PKT *p_ptr)
 	  if (p_ptr != NULL) {
 	    p_ptr->frame_no = 0;
 	  }
-
 	}
 	return p_ptr;
 }
@@ -2460,6 +2859,7 @@ void * shm_filling(void* arg)
     }//while end
 }
 //#endif
+
 void log_init(void)
 {
 
@@ -2557,8 +2957,6 @@ void timerHandler( int sig, siginfo_t *si, void *uc )
 		sFlag.pnl4_demand_chk_1hr = 1;
 		wDemandChkCntr1hr_10ms = 0;
 		wDemandChkCntr24hr_10ms++;
-		//if(ntpsync_flag)
-	  		//ntptimesync();//753 for testing
 	  }
 	  if (wDemandChkCntr24hr_10ms >= 24)
 	  {
@@ -2599,9 +2997,6 @@ void timerHandler( int sig, siginfo_t *si, void *uc )
 	  cleartimer(&eighthTimerID);
 	  if(ntpsync_flag)
 	  	ntptimesync();
-	  //counter for sending epochtime flag as 1
-	  //if(ntpsync_flag)
-	  	//epochtime_cntr = 1500;
 	}
 	
 	
@@ -2691,6 +3086,7 @@ int cleartimer(timer_t *timerID)
 	return 0;
 
 }
+
 int settimer( timer_t *timerID, int time_sec, int time_msec )
 {
 	struct itimerspec its;
@@ -2702,6 +3098,7 @@ int settimer( timer_t *timerID, int time_sec, int time_msec )
 	timer_settime(*timerID, 0, &its, NULL);
 	return 0;
 }
+
 int init_timer_routine(timer_t *timerID)
 {
 	struct sigevent sev;
@@ -2739,8 +3136,11 @@ unsigned int set_address(void )
 	unsigned short dummy_parameter_offset = 0;
 	unsigned short parameter_data =0;
 	unsigned int result = 0;
-	unsigned int kVA_sqr, kW_sqr; //753
-    static unsigned int panel_ctr = 0;
+	unsigned int kVA_sqr, kW_sqr, kVAr, sqr_temp; 
+	unsigned int total_SEC_KW;
+    unsigned int total_SEC_KVA;
+    unsigned int total_SEC_KVAR;
+	static unsigned int panel_ctr = 0;
 
 	iptr = Data.array;
 
@@ -2856,19 +3256,59 @@ unsigned int set_address(void )
 
 			Reg[Offset].reg_d.reg_value = (result & 0x0000FFFF);
 
-			if(sboard_ver)
-			{
+//			if(sboard_ver)
+//			{
 				if((Offset == 23))
 				{
 					kVA_sqr = (unsigned long)(Data.word.Primary.KVA & 0xFFFF) * (unsigned long)(Data.word.Primary.KVA & 0xFFFF);
 					kW_sqr = (unsigned long)(Data.word.Primary.KW & 0xFFFF) * (unsigned long)(Data.word.Primary.KW & 0xFFFF);
-					Data.word.Primary.KVAR = (0x817<<16)|((unsigned int)sqrt(((unsigned long)kVA_sqr - (unsigned long)kW_sqr)) & 0xFFFF);
-
-					*(map + Offset) = ((unsigned int)sqrt(((unsigned long)kVA_sqr - (unsigned long)kW_sqr)) & 0xFFFF);
-
-					Reg[Offset].reg_d.reg_value = ((unsigned int)sqrt(((unsigned long)kVA_sqr - (unsigned long)kW_sqr)) & 0xFFFF);
+					if(kVA_sqr < kW_sqr)
+					{
+						sqr_temp = kVA_sqr;
+						kVA_sqr = kW_sqr;
+						kW_sqr = sqr_temp;
+					}
+					kVAr = (unsigned int)sqrt(((unsigned long)kVA_sqr - (unsigned long)kW_sqr));
+					if(kVAr == 65535)
+					 kVAr = 0;
+					Data.word.Primary.KVAR = ((0x817<<16)| ((kVAr) & 0xFFFF));				
+					*(map + Offset) = (kVAr & 0xFFFF);
+					Reg[Offset].reg_d.reg_value = (kVAr & 0xFFFF);
+					
+						
+						
+					/***** Calculates SEC_KW,SEC_KVA,SEC_KVAR at the same instance******/
+					
+					 total_SEC_KW = (Data.word.Secondary.KW_Phase_A& 0x0000FFFF) + (Data.word.Secondary.KW_Phase_B& 0x0000FFFF)+ (Data.word.Secondary.KW_Phase_C& 0x0000FFFF);
+   					 total_SEC_KVA =  (Data.word.Secondary.KVA_Phase_A& 0x0000FFFF) + (Data.word.Secondary.KVA_Phase_B& 0x0000FFFF)+ (Data.word.Secondary.KVA_Phase_C& 0x0000FFFF);
+    
+    				kVA_sqr = (unsigned long)(total_SEC_KVA) * (unsigned long)(total_SEC_KVA);
+					kW_sqr = (unsigned long)(total_SEC_KW) * (unsigned long)(total_SEC_KW);
+					if(kVA_sqr < kW_sqr)
+					{
+						sqr_temp = kVA_sqr;
+						kVA_sqr = kW_sqr;
+						kW_sqr = sqr_temp;
+					}					
+					
+					total_SEC_KVAR = ((unsigned int)sqrt((unsigned long)kVA_sqr - (unsigned long)kW_sqr));
+					if(total_SEC_KVAR == 65535)
+						total_SEC_KVAR = 0;
+	
+				//	Data.word.Sys.sec_KW = (total_SEC_KW&0xFFFF);
+				//	Data.word.Sys.sec_KVA = (total_SEC_KVA&0xFFFF);
+					Data.word.Sys.sec_KVAR = ((0x135<<16)| ((total_SEC_KVAR) & 0xFFFF));	
+	
+					Reg[STATUS_UPDATE + 2].reg_d.reg_value = (total_SEC_KW&0xFFFF);
+					Reg[STATUS_UPDATE + 3].reg_d.reg_value = (total_SEC_KVA&0xFFFF);
+					Reg[STATUS_UPDATE + 4].reg_d.reg_value = (total_SEC_KVAR&0xFFFF);
+					
+					*(map + STATUS_UPDATE + 2) = (total_SEC_KW&0xFFFF);
+					*(map + STATUS_UPDATE + 3) = (total_SEC_KVA&0xFFFF);
+					*(map + STATUS_UPDATE + 4) = (total_SEC_KVAR&0xFFFF);
+		
 				}
-			}
+//			}
 		}
 		else if (paraID == DSP_SEC_HI_ADDR)
 		{
@@ -2881,26 +3321,26 @@ unsigned int set_address(void )
 		}
 		else if (paraID == BOARDI_CT_RMS_HI_ADDR)
 		{
-                 if (temp_ptr->sensor_data[loop].can_id == 0x7f7)
-		 {
-		     Current_Buffer[Offset] = (result & 0x0000FFFF);
-		     //Reg[SYSTEMPARAMETER + Offset].reg_d.reg_value = (result & 0x0000FFFF);
-		 } 
-		else if (temp_ptr->sensor_data[loop].can_id == 0x7fb)
-		 {
-		     Current_Buffer[Offset + 84] = (result & 0x000FFFF);
-		     //Reg[RMS0_OFFSET + Offset].reg_d.reg_value = (result & 0x0000FFFF);
-		 }
-	        else if (temp_ptr->sensor_data[loop].can_id == 0x7fd)
-		 {
-		     Current_Buffer[Offset + 168] = (result & 0x000FFFF);
-		     //Reg[RMS1_OFFSET + Offset].reg_d.reg_value = (result & 0x0000FFFF);
-		 }
-	        else if (temp_ptr->sensor_data[loop].can_id == 0x7fe)
-		 {
-		     Current_Buffer[Offset + 252] = (result & 0x000FFFF);
-		     //Reg[RMS2_OFFSET + Offset].reg_d.reg_value = (result & 0x0000FFFF);
-		 }
+			if (temp_ptr->sensor_data[loop].can_id == 0x7f7)
+			{
+				Current_Buffer[Offset] = (result & 0x0000FFFF);
+				//Reg[SYSTEMPARAMETER + Offset].reg_d.reg_value = (result & 0x0000FFFF);
+			} 
+			else if (temp_ptr->sensor_data[loop].can_id == 0x7fb)
+			{
+				Current_Buffer[Offset + 84] = (result & 0x000FFFF);
+				//Reg[RMS0_OFFSET + Offset].reg_d.reg_value = (result & 0x0000FFFF);
+			}
+			else if (temp_ptr->sensor_data[loop].can_id == 0x7fd)
+			{
+				Current_Buffer[Offset + 168] = (result & 0x000FFFF);
+				//Reg[RMS1_OFFSET + Offset].reg_d.reg_value = (result & 0x0000FFFF);
+			}
+			else if (temp_ptr->sensor_data[loop].can_id == 0x7fe)
+			{
+				Current_Buffer[Offset + 252] = (result & 0x000FFFF);
+				//Reg[RMS2_OFFSET + Offset].reg_d.reg_value = (result & 0x0000FFFF);
+			}
 		}
 		else if (paraID == BOARDI_KW_HI_ADDR)
 		{
@@ -2928,6 +3368,7 @@ unsigned int set_address(void )
 			if((Offset >= 0xA0) || (Offset <= 0xA7))
 			  *(iptr + SYS + (Offset - 0xA0)) = result;
 			  Reg[SYS_NV + (Offset - 0xA0)].reg_d.reg_value = (result & 0x0000FFFF);
+			  *(map + SYS_NV + (Offset - 0xA0)) =  (result & 0x0000FFFF);
                           //printf("\n Firmware version %d : %x\n",Offset - 0xA0,result);
 		  }
 		  else if(temp_ptr->sensor_data[loop].can_id == 0x7fb)
@@ -2946,9 +3387,11 @@ unsigned int set_address(void )
 			  *(iptr + FIRMWARE_2 + (Offset - 0xA0)) = result;
 		  }	
 		}
-		else if (paraID == DSP_SYS_PARAMETER_HI_ADDR)
+		else if (paraID == DSP_SYS_PARAMETER_HI_ADDR)	//Adding Ground_Current to Communication
 		{
 			Data.word.System_Parameter.Ground_Curr = result;
+			Reg[FW_VERSION0 + 1].reg_d.reg_value = (Data.word.System_Parameter.Ground_Curr & 0x0000FFFF);
+			*(map + FW_VERSION0 + 1) = (Data.word.System_Parameter.Ground_Curr & 0x0000FFFF);
 		}
 	        else if (paraID == BRANCH_GAIN)
 	        {
@@ -2978,14 +3421,35 @@ unsigned int set_address(void )
 			}
 		   }
 	        }
-
-		 		 	
+	        
+	    else if (paraID == BOARDI_CT_MAX_CURRENT_HI_ADDR)			//ITHD adding to Branch
+		{
+		  if(temp_ptr->sensor_data[loop].can_id == 0x7f7)
+		  {
+		     ITHD_Buffer[Offset] = (result & 0x0000FFFF);
+		  }
+		  else if(temp_ptr->sensor_data[loop].can_id == 0x7fb)
+		  {
+	             ITHD_Buffer[Offset + 84] = (result & 0x0000FFFF);
+		  }
+		  else if(temp_ptr->sensor_data[loop].can_id == 0x7fd)
+		  {
+		     ITHD_Buffer[Offset + 168] = (result & 0x0000FFFF);
+		  }
+		  else if(temp_ptr->sensor_data[loop].can_id == 0x7fe)
+		  {
+		     ITHD_Buffer[Offset + 252] = (result & 0x0000FFFF);
+		  }	
+		}
+		//printf("ParaID %d \n",paraID);	
+		//printf("ITHD_Buffer %d \n",ITHD_Buffer[Offset]);	 	
         }
 	}
     else
     {
     //printf("No Tx packet\n");
     }
+    
 
 }
 
@@ -2993,6 +3457,8 @@ unsigned int set_address(void )
 
 void transmit_pkt(void )
 {
+	
+
 	unsigned int loop;
 	unsigned int nbytes;
 	//unsigned int nbytes_uart;
@@ -3007,11 +3473,6 @@ void transmit_pkt(void )
 	/*******Sending Epochtime***********************************************************************///3216212 Aswin Krishna(16/11/21)
 
 	epochtime = (unsigned int)time(NULL);
-
-	//kVAR  
-	//kVA_sqr = (unsigned long)(Data.word.Primary.KVA & 0xFFFF) * (unsigned long)(Data.word.Primary.KVA & 0xFFFF);
-	//kW_sqr = (unsigned long)(Data.word.Primary.KW & 0xFFFF) * (unsigned long)(Data.word.Primary.KW & 0xFFFF);
-	//Data.word.Primary.KVAR = (0x817<<16)|((unsigned int)sqrt(((unsigned long)kVA_sqr - (unsigned long)kW_sqr)) & 0xFFFF);
 	
 	/*                      
     if(epochtime_cntr == 1000)
@@ -3049,14 +3510,16 @@ void transmit_pkt(void )
     /**********Sending buzzer status*******************************************************************///
    
     nos_i2c_read(0, 0x22, 0x02, &buzzer_stat, 4);
+	// if(nos_i2c_read(0, 0x22, 0x02, &buzzer_stat, 4) == -1)
+	// {
+	// 	i2c_init(0);
+	// }
 	buzzer_stat = (buzzer_stat >> 3) & 0x01;
 	Data.word.Sys.buzzer_stat = ((0x10F << 16) | ((buzzer_stat & 0x0F) | ((buzz_status << 4) & 0xF0)));
  
-
 	/************** Checking the time between each transmission **************/
 	//753
 	#if 0
-
 	if(jack == 1)
 	{
 		gettimeofday(&stop_t, NULL);
@@ -3092,12 +3555,11 @@ void transmit_pkt(void )
 		printf("\nCan data : %x\n",*dptr);
 		}*/
 		nbytes = write(sock_can, &temp_frame, sizeof(struct can_frame));
-		usleep(100);
-
-               
-                
+		usleep(500);       
+		  
 	  }
 	}
+
 }
 
 
@@ -3142,7 +3604,8 @@ void LoadPer_Calc( unsigned int reg)
 		i = (Data.word.Primary.RMS_Curr_Phase_A&0xFFFF);
 		dwMathBuff = ((unsigned long)i * 1000L);
 		(Data.word.Primary.LoadPer_Phase_A) = ((unsigned long)(0x814 << 16))|(((unsigned long)dwMathBuff / wPri_Thd.word.wPhaseA_OverCurr));
-		*(map + 19) = (Data.word.Primary.LoadPer_Phase_A & 0x0000FFFF);
+		//*(map + 19) = (Data.word.Primary.LoadPer_Phase_A & 0x0000FFFF);
+		*(map + 20) = (Data.word.Primary.LoadPer_Phase_A & 0x0000FFFF);
 		
 		Reg[20].reg_d.reg_value = (Data.word.Primary.LoadPer_Phase_A & 0x0000FFFF);
 		
@@ -3150,7 +3613,8 @@ void LoadPer_Calc( unsigned int reg)
 		i = (Data.word.Primary.RMS_Curr_Phase_B&0xFFFF);
 		dwMathBuff = ((unsigned long)i * 1000L);
 		(Data.word.Primary.LoadPer_Phase_B) = ((unsigned long)(0x815 << 16))|(((unsigned long)dwMathBuff / wPri_Thd.word.wPhaseB_OverCurr));
-		*(map + 20) = (Data.word.Primary.LoadPer_Phase_B & 0x0000FFFF);
+		//*(map + 20) = (Data.word.Primary.LoadPer_Phase_B & 0x0000FFFF);
+		*(map + 21) = (Data.word.Primary.LoadPer_Phase_B & 0x0000FFFF);
 		
 		Reg[21].reg_d.reg_value = (Data.word.Primary.LoadPer_Phase_B & 0x0000FFFF);
 		
@@ -3160,7 +3624,9 @@ void LoadPer_Calc( unsigned int reg)
 		i = (Data.word.Primary.RMS_Curr_Phase_C&0xFFFF);
 		dwMathBuff = ((unsigned long)i * 1000L);
 		(Data.word.Primary.LoadPer_Phase_C) = ((unsigned long)(0x816 << 16))|(((unsigned long)dwMathBuff / wPri_Thd.word.wPhaseC_OverCurr));
-		*(map + 21) = (Data.word.Primary.LoadPer_Phase_C & 0x0000FFFF);
+		//*(map + 21) = (Data.word.Primary.LoadPer_Phase_C & 0x0000FFFF);
+		*(map + 22) = (Data.word.Primary.LoadPer_Phase_C & 0x0000FFFF);
+		
 		
 		Reg[22].reg_d.reg_value = (Data.word.Primary.LoadPer_Phase_C & 0x0000FFFF);
 		
@@ -3353,10 +3819,7 @@ void LoadPer_Calc( unsigned int reg)
 			Data.array[LOAD_0_OFFSET + i] = ((unsigned long)((0x1900|(i + 84))|(0<<14))<<16)|((unsigned long)(dwMathBuff / ((Data_In.word.Max_Min_Limit[1][i]) & 0xFFFF)));
 			//printf("\nLoad Per : %x\n",Data.array[LOAD_0_OFFSET + i]);
 			*(map + LOAD0_OFFSET + i) = (Data.array[LOAD_0_OFFSET + i] & 0x0000FFFF);
-			
 			Reg[LOAD0_OFFSET + i].reg_d.reg_value = (Data.array[LOAD_0_OFFSET + i] & 0x0000FFFF);
-			
-
 		  }
 		}
 		break;	
@@ -3412,7 +3875,6 @@ void Status_Update (unsigned int reg)
 	unsigned int j=0;
 	unsigned int alarm;
 	unsigned char alarm1;
-
 	
 	
 	switch (reg)
@@ -3463,7 +3925,7 @@ void Status_Update (unsigned int reg)
 		if ((Data.word.Pri_Status_Flag.PhaseA_UnderVolt) || (Data.word.Pri_Status_Flag.PhaseB_UnderVolt) || (Data.word.Pri_Status_Flag.PhaseC_UnderVolt))
 		{
 		 input_undervolt_count++;
-	         if (input_undervolt_count >= 10)
+	         if (input_undervolt_count >= 63)
 		 {
 		  if (!event_flag[33])
 		  {
@@ -3477,6 +3939,7 @@ void Status_Update (unsigned int reg)
 		}
 		else if  ((!Data.word.Pri_Status_Flag.PhaseA_UnderVolt) || (!Data.word.Pri_Status_Flag.PhaseB_UnderVolt) || (!Data.word.Pri_Status_Flag.PhaseC_UnderVolt))
 		{
+			
 		  input_undervolt_count = 0;
 		  if (event_flag[33])
 		  {
@@ -3527,6 +3990,9 @@ void Status_Update (unsigned int reg)
 		{
 		if ((Data.word.Pri_Status_Flag.PhaseA_OverVolt) || (Data.word.Pri_Status_Flag.PhaseB_OverVolt) || (Data.word.Pri_Status_Flag.PhaseC_OverVolt))
 		{
+			input_overvolt_count ++;
+			if(input_overvolt_count >= 13)
+			{
 		  if (!event_flag[39])
 		  {
 			dummy1 = 39;
@@ -3535,9 +4001,11 @@ void Status_Update (unsigned int reg)
 			alarm_status |= (1 << IP_OVER_VOLTAGE);
 			alarm_flag = 0;
 		  }
+			}
 		}
 		else if ((!Data.word.Pri_Status_Flag.PhaseA_OverVolt) || (!Data.word.Pri_Status_Flag.PhaseB_OverVolt) || (!Data.word.Pri_Status_Flag.PhaseC_OverVolt))
 		{
+			input_overvolt_count = 0;
 		  if (event_flag[39])
 		  {
 			dummy1 = 40;
@@ -3702,6 +4170,9 @@ void Status_Update (unsigned int reg)
 		{
 		if ((Data.word.Pri_Status_Flag.PhaseA_OverCurr) || (Data.word.Pri_Status_Flag.PhaseB_OverCurr) || (Data.word.Pri_Status_Flag.PhaseC_OverCurr))
 		{
+			input_overcurrent_count ++;
+			if(input_overcurrent_count >= 13)
+			{
 		  if (!event_flag[36])
 		  {
 			dummy1 = 41;
@@ -3710,9 +4181,11 @@ void Status_Update (unsigned int reg)
 			alarm_status |= (1 << IP_OVER_CURRENT);
 			alarm_flag = 0;
 		  }
+			}
 		}
 		else if ((!Data.word.Pri_Status_Flag.PhaseA_OverCurr) || (!Data.word.Pri_Status_Flag.PhaseB_OverCurr) || (!Data.word.Pri_Status_Flag.PhaseC_OverCurr))
 		{
+			input_overcurrent_count = 0;
 		  if (event_flag[36])
 		  {
 			dummy1 = 42;
@@ -3820,48 +4293,94 @@ void Status_Update (unsigned int reg)
 		}
 		if ((Data.word.Sec_Status_Flag.PhaseA_UnderVolt) || (Data.word.Sec_Status_Flag.PhaseB_UnderVolt) || (Data.word.Sec_Status_Flag.PhaseC_UnderVolt))
 		{
-		  if (!event_flag[51])
-		  {
-	             dummy1 = 51;
-	             write(fd5[1],&dummy1,1);
-	             event_flag[51] = 1;
-		     alarm_status |= (1 << OP_UNDER_VOLTAGE);
-		     alarm_flag = 0;
-		  }
+			output_undervolt_count++;
+			if(output_undervolt_count >= 63)
+			{
+			if (!event_flag[51])
+			{
+
+				dummy1 = 51;
+				write(fd5[1],&dummy1,1);
+				event_flag[51] = 1;
+				//alarm_status |= (1 << OP_UNDER_VOLTAGE);
+				if(no_xfmr)
+				{
+					alarm_status |= (1 << OP_UNDER_VOLTAGE);	
+				}
+				else
+				{
+					alarm_status |= (1 << IP_UNDER_VOLTAGE);
+				}
+			}
+				
+				alarm_flag = 0;
+			}
 		}
 		else if  ((!Data.word.Sec_Status_Flag.PhaseA_UnderVolt) || (Data.word.Sec_Status_Flag.PhaseB_UnderVolt) || (Data.word.Sec_Status_Flag.PhaseC_UnderVolt))
 		{
+			output_undervolt_count = 0;
 			if (event_flag[51])
 			{
+				
 				dummy1 = 52;
 				write(fd5[1],&dummy1,1);
 				event_flag[51] = 0;
-				alarm_status &= ~(1 << OP_UNDER_VOLTAGE);
+				//alarm_status &= ~(1 << OP_UNDER_VOLTAGE);
+				if(no_xfmr)
+				{
+					alarm_status &= ~(1 << OP_UNDER_VOLTAGE);	
+				}
+				else
+				{
+					alarm_status &= ~(1 << IP_UNDER_VOLTAGE);
+				}
 				alarm_flag = 0;
-		  	}
+			}
 		}
 		if ((Data.word.Sec_Status_Flag.PhaseA_OverVolt) || (Data.word.Sec_Status_Flag.PhaseB_OverVolt) || (Data.word.Sec_Status_Flag.PhaseC_OverVolt))
 		{
-		  if (!event_flag[53])
-		  {
-	             dummy1 = 53;
-	             write(fd5[1],&dummy1,1);
-	             event_flag[53] = 1;
-		     alarm_status |= (1 << OP_OVER_VOLTAGE);
-		     alarm_flag = 0;
-		  }
+			output_overvolt_count ++;
+			if(output_overvolt_count >= 13)
+			{
+
+			if (!event_flag[53])
+			{
+				dummy1 = 53;
+				write(fd5[1],&dummy1,1);
+				event_flag[53] = 1;
+				//alarm_status |= (1 << OP_OVER_VOLTAGE);
+				if(no_xfmr)
+				{
+					alarm_status |= (1 << OP_OVER_VOLTAGE);	
+				}
+				else
+				{
+					alarm_status |= (1 << IP_OVER_VOLTAGE);
+				}
+				alarm_flag = 0;
+			}
+			}
 		}
-	    else if  ((!Data.word.Sec_Status_Flag.PhaseA_OverVolt) || (Data.word.Sec_Status_Flag.PhaseB_OverVolt) || (Data.word.Sec_Status_Flag.PhaseC_OverVolt))
+		else if  ((!Data.word.Sec_Status_Flag.PhaseA_OverVolt) || (Data.word.Sec_Status_Flag.PhaseB_OverVolt) || (Data.word.Sec_Status_Flag.PhaseC_OverVolt))
 		{
-		  if (event_flag[53])
-		  {
-			dummy1 = 54;
-			write(fd5[1],&dummy1,1);
-			event_flag[53] = 0;
-			alarm_status &= ~(1 << OP_OVER_VOLTAGE);
-			alarm_flag = 0;
-		  }
-	    }
+			output_overvolt_count = 0;
+			if (event_flag[53])
+			{
+				dummy1 = 54;
+				write(fd5[1],&dummy1,1);
+				event_flag[53] = 0;
+				//alarm_status &= ~(1 << OP_OVER_VOLTAGE);
+				if(no_xfmr)
+				{
+					alarm_status &= ~(1 << OP_OVER_VOLTAGE);	
+				}
+				else
+				{
+					alarm_status &= ~(1 << IP_OVER_VOLTAGE);
+				}
+				alarm_flag = 0;
+			}
+		}
 		
 		// Current Status       
 		if ((Data.word.Secondary.RMS_Curr_Phase_A & 0x0000FFFF) < wSec_Thd.word.wPhaseA_UnderCurr)
@@ -3902,12 +4421,21 @@ void Status_Update (unsigned int reg)
 
 		if ((Data.word.Sec_Status_Flag.PhaseA_UnderCurr) || (Data.word.Sec_Status_Flag.PhaseB_UnderCurr) || (Data.word.Sec_Status_Flag.PhaseC_UnderCurr))
 		{
+
 		  if (!event_flag[55])
 		  {
 			dummy1 = 55;
 			write(fd5[1],&dummy1,1);
 			event_flag[55] = 1;
-		        alarm_status |= (1 << OP_UNDER_CURRENT);
+		    //alarm_status |= (1 << OP_UNDER_CURRENT);
+			if(no_xfmr)
+			{
+				alarm_status |= (1 << OP_UNDER_CURRENT);
+			}
+			else
+			{
+				alarm_status |= (1 << IP_UNDER_CURRENT);
+			}
 			alarm_flag = 0;
 		  }
 		}
@@ -3918,7 +4446,15 @@ void Status_Update (unsigned int reg)
 			dummy1 = 56;
 			write(fd5[1],&dummy1,1);
 			event_flag[55] = 0;
-		        alarm_status &= ~(1 << OP_UNDER_CURRENT);
+		    //alarm_status &= ~(1 << OP_UNDER_CURRENT);
+			if(no_xfmr)
+			{
+				alarm_status &= ~(1 << OP_UNDER_CURRENT);
+			}
+			else
+			{
+				alarm_status &= ~(1 << IP_UNDER_CURRENT);
+			}
 			alarm_flag = 0;
 		  }
 		}
@@ -3938,7 +4474,8 @@ void Status_Update (unsigned int reg)
 			}
 		  }
 		}
-		else {
+		else 
+		{
 		  if(((Data.word.Secondary.RMS_Curr_Phase_A & 0x0000FFFF) * 10) < (wSec_Thd.word.wPhaseA_OverCurr * 7) - OP_OC_CURR_HYSTER)
 		  {
 			Data.word.Sec_Status_Flag.PhaseA_OverCurr = 0;
@@ -3985,7 +4522,8 @@ void Status_Update (unsigned int reg)
 			}
 		  }
 		}
-		else {
+		else
+		{
 		  if(((Data.word.Secondary.RMS_Curr_Phase_C & 0x0000FFFF) * 10) < ((wSec_Thd.word.wPhaseC_OverCurr * 7) - OP_HIGH_CURR_HYSTER))
 		  {
 			Data.word.Sec_Status_Flag.PhaseC_OverCurr = 0;
@@ -3994,25 +4532,48 @@ void Status_Update (unsigned int reg)
 		}
 		if ((Data.word.Sec_Status_Flag.PhaseA_OverCurr) || (Data.word.Sec_Status_Flag.PhaseB_OverCurr) || (Data.word.Sec_Status_Flag.PhaseC_OverCurr))
 		{
+			output_overcurrent_count ++;
+			if(output_overcurrent_count >= 13)
+			{
 		  if (!event_flag[66])
 		  {
 			dummy1 = 66;
 			write(fd5[1],&dummy1,1);
 			event_flag[66] = 1;
-			alarm_status |= (1 << OP_OVER_CURRENT);
+			//alarm_status |= (1 << OP_OVER_CURRENT);
+			if(no_xfmr)
+			{
+				alarm_status |= (1 << OP_OVER_CURRENT);
+			}
+			else
+			{
+				alarm_status |= (1 << IP_OVER_CURRENT);
+			}
 			alarm_flag = 0;
 		  }
+			}
 		}
 		else if ((!Data.word.Sec_Status_Flag.PhaseA_OverCurr) || (Data.word.Sec_Status_Flag.PhaseB_OverCurr) || (Data.word.Sec_Status_Flag.PhaseC_OverCurr))
 		{
+			output_overcurrent_count = 0;
+			
 		  if (event_flag[66])
 		  {
 			dummy1 = 67;
 			write(fd5[1],&dummy1,1);
 			event_flag[66] = 0;
-			alarm_status &= ~(1 << OP_OVER_CURRENT);
+			//alarm_status &= ~(1 << OP_OVER_CURRENT);
+			if(no_xfmr)
+			{
+				alarm_status &= ~(1 << OP_OVER_CURRENT);
+			}
+			else
+			{
+				alarm_status &= ~(1 << IP_OVER_CURRENT);
+			}
 			alarm_flag = 0;
-		  }
+		  
+			}
 		}
 		/*if ((Data.word.Sec_Status_Flag.PhaseA_Curr_High) || (Data.word.Sec_Status_Flag.PhaseB_Curr_High) || (Data.word.Sec_Status_Flag.PhaseC_Curr_High))
 		{
@@ -4041,6 +4602,9 @@ void Status_Update (unsigned int reg)
 		}
 		if (Data.word.Sec_Status_Flag.Neutral_OverCurr)
 		{
+			neutral_current_count ++;
+			if(neutral_current_count >= 13)
+			{
 		  if (!event_flag[38])
 		  {
 
@@ -4050,12 +4614,13 @@ void Status_Update (unsigned int reg)
 	        alarm_status |= (1 << NEUTRAL_CURRENT);
 			alarm_flag = 0;
 		  }
+			}
 		}
 		else if (!Data.word.Sec_Status_Flag.Neutral_OverCurr)
 		{
+			neutral_current_count = 0;
 		  if (event_flag[38])
 		  {
-
 			dummy1 = 38;
 			write(fd5[1],&dummy1,1);
 			event_flag[38] = 0;
@@ -4064,79 +4629,77 @@ void Status_Update (unsigned int reg)
 		  }
 		}
 
-		if (((Data.word.Secondary.Volt_THD_Phase_A & 0xFFFF) > wSec_Thd.word.wOverVoltTHD) && ((Data.word.Secondary.Volt_THD_Phase_A & 0xFFFF) != 0xFFFF))
-		{
+		// if((Data.word.System_Status.CB_Primary == 0) || (Data.word.System_Status.CB_Primary_Trip == 1)) //753
+		// {
+			if (((Data.word.Secondary.Volt_THD_Phase_A & 0xFFFF) > wSec_Thd.word.wOverVoltTHD) && ((Data.word.Secondary.Volt_THD_Phase_A & 0xFFFF) != 0xFFFF) && (Data.word.System_Status.CB_Primary == 0) && (Data.word.System_Status.CB_Primary_Trip == 1)) //753
+			{
+				Data.word.Sec_Status_Flag.PhaseA_OverTHDVolt = 1;
+			}
+			else
+			{
+				if (((Data.word.Secondary.Volt_THD_Phase_A & 0xFFFF) < (wSec_Thd.word.wOverVoltTHD - OP_VTHD_HYSTER)) || ((Data.word.Secondary.Volt_THD_Phase_A & 0xFFFF) == 0xFFFF))
+				{
 
-		  Data.word.Sec_Status_Flag.PhaseA_OverTHDVolt = 1;
-		}
-		else
-		{
-		  if ((Data.word.Secondary.Volt_THD_Phase_A & 0xFFFF) < (wSec_Thd.word.wOverVoltTHD - OP_VTHD_HYSTER))
-		  {
+					Data.word.Sec_Status_Flag.PhaseA_OverTHDVolt = 0;
+				}
+			}
+			
+			if (((Data.word.Secondary.Volt_THD_Phase_B & 0xFFFF) > wSec_Thd.word.wOverVoltTHD) && ((Data.word.Secondary.Volt_THD_Phase_B & 0xFFFF) != 0xFFFF) && (Data.word.System_Status.CB_Primary == 0) && (Data.word.System_Status.CB_Primary_Trip == 1))
+			{
+				Data.word.Sec_Status_Flag.PhaseB_OverTHDVolt = 1;
+			}
+			else
+			{
+				if ((Data.word.Secondary.Volt_THD_Phase_B & 0xFFFF) < (wSec_Thd.word.wOverVoltTHD - OP_VTHD_HYSTER) || ((Data.word.Secondary.Volt_THD_Phase_B & 0xFFFF) == 0xFFFF))
+				{
+					Data.word.Sec_Status_Flag.PhaseB_OverTHDVolt = 0;
+				}
+			}
 
-			Data.word.Sec_Status_Flag.PhaseA_OverTHDVolt = 0;
-		  }
-		}
-	      
-		if (((Data.word.Secondary.Volt_THD_Phase_B & 0xFFFF) > wSec_Thd.word.wOverVoltTHD) && ((Data.word.Secondary.Volt_THD_Phase_B & 0xFFFF) != 0xFFFF))
-		{
+			if (((Data.word.Secondary.Volt_THD_Phase_C & 0xFFFF) > wSec_Thd.word.wOverVoltTHD) && ((Data.word.Secondary.Volt_THD_Phase_C & 0xFFFF) != 0xFFFF) && (Data.word.System_Status.CB_Primary == 0) && (Data.word.System_Status.CB_Primary_Trip == 1))
+			{
+				Data.word.Sec_Status_Flag.PhaseC_OverTHDVolt = 1;
+			}
+			else
+			{
+				if ((Data.word.Secondary.Volt_THD_Phase_C & 0xFFFF) < (wSec_Thd.word.wOverVoltTHD - OP_VTHD_HYSTER) || ((Data.word.Secondary.Volt_THD_Phase_C & 0xFFFF) == 0xFFFF))
+				{
+					Data.word.Sec_Status_Flag.PhaseC_OverTHDVolt = 0;
+				}
+			}
+		//}
 
-		  Data.word.Sec_Status_Flag.PhaseB_OverTHDVolt = 1;
-		}
-		else
+		if ((Data.word.Secondary.RMS_Curr_Phase_A & 0xFFFF) || (Data.word.Secondary.RMS_Curr_Phase_B & 0xFFFF) || (Data.word.Secondary.RMS_Curr_Phase_C & 0xFFFF))
 		{
-		  if ((Data.word.Secondary.Volt_THD_Phase_B & 0xFFFF) < (wSec_Thd.word.wOverVoltTHD - OP_VTHD_HYSTER))
-		  {
-			Data.word.Sec_Status_Flag.PhaseB_OverTHDVolt = 0;
-		  }
-		}
-		if (((Data.word.Secondary.Volt_THD_Phase_C & 0xFFFF) > wSec_Thd.word.wOverVoltTHD) && ((Data.word.Secondary.Volt_THD_Phase_C & 0xFFFF) != 0xFFFF))
-		{
-
-		  Data.word.Sec_Status_Flag.PhaseC_OverTHDVolt = 1;
-		}
-		else
-		{
-		  if ((Data.word.Secondary.Volt_THD_Phase_C & 0xFFFF) < (wSec_Thd.word.wOverVoltTHD - OP_VTHD_HYSTER))
-		  {
-
-			Data.word.Sec_Status_Flag.PhaseC_OverTHDVolt = 0;
-		  }
-		}
-
-	        if ((Data.word.Secondary.RMS_Curr_Phase_A & 0xFFFF) ||
-		    (Data.word.Secondary.RMS_Curr_Phase_B & 0xFFFF) || 
-		    (Data.word.Secondary.RMS_Curr_Phase_C & 0xFFFF))
-	        {
-		if (((Data.word.Secondary.Curr_THD_Phase_A & 0xFFFF) > wSec_Thd.word.wOverCurrTHD) && ((Data.word.Secondary.Curr_THD_Phase_A & 0xFFFF)!= 0xFFFF))
-		{
-		  Data.word.Sec_Status_Flag.PhaseA_OverTHDCurr = 1;
-		}
-		else
-		{
-		  if ((Data.word.Secondary.Curr_THD_Phase_A & 0xFFFF) < (wSec_Thd.word.wOverCurrTHD - OP_ITHD_HYSTER))
-		    Data.word.Sec_Status_Flag.PhaseA_OverTHDCurr = 0;
-		}
-		if (((Data.word.Secondary.Curr_THD_Phase_B & 0xFFFF) > wSec_Thd.word.wOverCurrTHD) && ((Data.word.Secondary.Curr_THD_Phase_B & 0xFFFF)!= 0xFFFF))
-		{
-		  Data.word.Sec_Status_Flag.PhaseB_OverTHDCurr = 1;
-		}
-		else
-		{
-		  if ((Data.word.Secondary.Curr_THD_Phase_B & 0xFFFF) < (wSec_Thd.word.wOverCurrTHD - OP_ITHD_HYSTER))
-			Data.word.Sec_Status_Flag.PhaseB_OverTHDCurr = 0;
-		}
-		if (((Data.word.Secondary.Curr_THD_Phase_C & 0xFFFF) > wSec_Thd.word.wOverCurrTHD) && ((Data.word.Secondary.Curr_THD_Phase_C & 0xFFFF)!= 0xFFFF))
-		{
-		  Data.word.Sec_Status_Flag.PhaseC_OverTHDCurr = 1;
-		}
-		else
-		{
-		  if ((Data.word.Secondary.Curr_THD_Phase_C & 0xFFFF) < (wSec_Thd.word.wOverCurrTHD - OP_ITHD_HYSTER))
-			Data.word.Sec_Status_Flag.PhaseC_OverTHDCurr = 0;
-		}
-	        }
-	       else
+			if (((Data.word.Secondary.Curr_THD_Phase_A & 0xFFFF) > wSec_Thd.word.wOverCurrTHD) && ((Data.word.Secondary.Curr_THD_Phase_A & 0xFFFF)!= 0xFFFF))
+			{
+				Data.word.Sec_Status_Flag.PhaseA_OverTHDCurr = 1;
+			}
+			else
+			{
+				if ((Data.word.Secondary.Curr_THD_Phase_A & 0xFFFF) < (wSec_Thd.word.wOverCurrTHD - OP_ITHD_HYSTER))
+					Data.word.Sec_Status_Flag.PhaseA_OverTHDCurr = 0;
+			}
+			if (((Data.word.Secondary.Curr_THD_Phase_B & 0xFFFF) > wSec_Thd.word.wOverCurrTHD) && ((Data.word.Secondary.Curr_THD_Phase_B & 0xFFFF)!= 0xFFFF))
+			{
+				Data.word.Sec_Status_Flag.PhaseB_OverTHDCurr = 1;
+			}
+			else
+			{
+				if ((Data.word.Secondary.Curr_THD_Phase_B & 0xFFFF) < (wSec_Thd.word.wOverCurrTHD - OP_ITHD_HYSTER))
+					Data.word.Sec_Status_Flag.PhaseB_OverTHDCurr = 0;
+			}
+			if (((Data.word.Secondary.Curr_THD_Phase_C & 0xFFFF) > wSec_Thd.word.wOverCurrTHD) && ((Data.word.Secondary.Curr_THD_Phase_C & 0xFFFF)!= 0xFFFF))
+			{
+				Data.word.Sec_Status_Flag.PhaseC_OverTHDCurr = 1;
+			}
+			else
+			{
+				if ((Data.word.Secondary.Curr_THD_Phase_C & 0xFFFF) < (wSec_Thd.word.wOverCurrTHD - OP_ITHD_HYSTER))
+					Data.word.Sec_Status_Flag.PhaseC_OverTHDCurr = 0;
+			}
+	    }
+	    else
 		{
 		   Data.word.Sec_Status_Flag.PhaseA_OverTHDCurr = 0;
 		   Data.word.Sec_Status_Flag.PhaseB_OverTHDCurr = 0;
@@ -4144,22 +4707,24 @@ void Status_Update (unsigned int reg)
 		}
 
 
-	        if ((Data.word.Sec_Status_Flag.PhaseA_OverTHDVolt)
-		 ||(Data.word.Sec_Status_Flag.PhaseB_OverTHDVolt)
-	         ||(Data.word.Sec_Status_Flag.PhaseC_OverTHDVolt))
-		{
+	    if ((Data.word.Sec_Status_Flag.PhaseA_OverTHDVolt) || (Data.word.Sec_Status_Flag.PhaseB_OverTHDVolt) || (Data.word.Sec_Status_Flag.PhaseC_OverTHDVolt))
+		{ 
 		   if (!event_flag[25])
 		  {
-
+			output_vthd_count ++;
+			if(output_vthd_count >= 13)
+			{
 			dummy1 = 25;
 			write(fd5[1],&dummy1,1);
 			event_flag[25] = 1;
-	                alarm_status |= (1 << OUTPUT_VTHD);
+	        alarm_status |= (1 << OUTPUT_VTHD);
 			alarm_flag = 0;
-		  }
+		  	}
+			}	
 		}
 	       else
 		{
+			output_vthd_count = 0;
 		  if (event_flag[25])
 		  {
 
@@ -4175,25 +4740,30 @@ void Status_Update (unsigned int reg)
 		 ||(Data.word.Sec_Status_Flag.PhaseB_OverTHDCurr)
 	         ||(Data.word.Sec_Status_Flag.PhaseC_OverTHDCurr))
 		{
+			output_cthd_count ++;
+			if(output_cthd_count >= 13)
+			{
 		   if (!event_flag[27])
 		  {
-
 			dummy1 = 27;
 			write(fd5[1],&dummy1,1);
 			event_flag[27] = 1;
 	        alarm_status |= (1 << OUTPUT_CTHD);  
 			alarm_flag = 0;
 		  }
+			}
 		}
 	       else
 		{
+			output_cthd_count = 0;
+
 		  if (event_flag[27])
 		  {
 
 			dummy1 = 28;
 			write(fd5[1],&dummy1,1);
 			event_flag[27] = 0;
-	                alarm_status &= ~(1 << OUTPUT_CTHD);
+	        alarm_status &= ~(1 << OUTPUT_CTHD);
 			alarm_flag = 0;
 		  }
 		}
@@ -4241,8 +4811,6 @@ void Status_Update (unsigned int reg)
 			  if((Data.array[SEC_OFFSET + i] & 0x0000FFFF) > (((Data_In.word.Max_Min_Limit[0][i] >> 16) & 0xFFFF) + BRANCH_UC_HYSTER))
 			  {
 				Data.array[SEC_STATUS_FLAG] &= (~alarm);
-
-
 				*(map + LOAD1_OFFSET) &= (~alarm);
 			  }
 			}
@@ -4335,6 +4903,8 @@ void Status_Update (unsigned int reg)
 		    {
 			  Data.array[PANEL14_UNDERCURR_STATUS_FLAG] |= alarm;
 			  *(map + PANEL14_UNDERCURR_FLAG) |= alarm;
+			  Reg[KWH_B2_OFFSET + i].reg_d.reg_value = 0xFFFF;
+			  *(map + KWH_B2_OFFSET + i) = 0xFFFF;
      		}
 		    else
 		    {
@@ -4342,6 +4912,8 @@ void Status_Update (unsigned int reg)
 		      {
 		        Data.array[PANEL14_UNDERCURR_STATUS_FLAG] &= (~alarm);
 		        *(map + PANEL14_UNDERCURR_FLAG) &= (~alarm);
+		        Reg[KWH_B2_OFFSET + i].reg_d.reg_value = 0x0000;
+		        *(map + KWH_B2_OFFSET + i) = 0x0000;
 			  }
 		    }
 		  }
@@ -4358,19 +4930,23 @@ void Status_Update (unsigned int reg)
 			{
 			  Data.array[PANEL11_OVERCURR_STATUS_FLAG] |= alarm;
 			  *(map + PANEL11_OVERCURR_FLAG) |= alarm;
+			  Reg[KWH_B2_OFFSET + 21 + i].reg_d.reg_value = 0xFFFF;
+			  *(map + KWH_B2_OFFSET + 21 + i) = 0xFFFF;
 			}
 		    else
 		    {
 			  if((Data.array[SEC_OFFSET + 21 + i] & 0x0000FFFF) < (((Data_In.word.Max_Min_Limit[0][21+i]) & 0xFFFF) - BRANCH_OC_HYSTER))
 			  {
 				Data.array[PANEL11_OVERCURR_STATUS_FLAG] &= (~alarm);
+				Reg[KWH_B2_OFFSET + 21 + i].reg_d.reg_value = 0x0000;
 				*(map + PANEL11_OVERCURR_FLAG) &= (~alarm);
+				*(map + KWH_B2_OFFSET + 21 + i) = 0x0000;
 			  }
 			}
 		  }
 		  else{
 			Data.array[PANEL11_OVERCURR_STATUS_FLAG] &= (~alarm);
-			*(map + PANEL11_OVERCURR_FLAG) &= (~alarm);
+			*(map + PANEL11_OVERCURR_FLAG) &= (~alarm);	
 		  }
 		}
      		
@@ -4385,6 +4961,8 @@ void Status_Update (unsigned int reg)
 			{
 			  Data.array[PANEL12_OVERCURR_STATUS_FLAG] |= alarm;
 			  *(map + PANEL12_OVERCURR_FLAG) |= alarm;
+			  Reg[KWH_B2_OFFSET + 42 + i].reg_d.reg_value = 0xFFFF;
+			  *(map + KWH_B2_OFFSET + 42 + i) = 0xFFFF;
 			}
 		    else
 		    {
@@ -4392,6 +4970,8 @@ void Status_Update (unsigned int reg)
 			  {
 			    Data.array[PANEL12_OVERCURR_STATUS_FLAG] &= (~alarm);
 				*(map + PANEL12_OVERCURR_FLAG) &= (~alarm);
+				Reg[KWH_B2_OFFSET + 42 + i].reg_d.reg_value = 0x0000;
+				*(map + KWH_B2_OFFSET + 42 + i) = 0x0000;
 			  }
 		    }
 		  }
@@ -4408,6 +4988,8 @@ void Status_Update (unsigned int reg)
 			  {
 				Data.array[PANEL13_OVERCURR_STATUS_FLAG] |= alarm;
 				*(map + PANEL13_OVERCURR_FLAG) |= alarm;
+				Reg[KWH_B2_OFFSET + 63 + i].reg_d.reg_value = 0xFFFF;
+				*(map + KWH_B2_OFFSET + 63 + i) = 0xFFFF;				
 			  }
 			  else
 			  {
@@ -4415,6 +4997,8 @@ void Status_Update (unsigned int reg)
 				{
 				  Data.array[PANEL13_OVERCURR_STATUS_FLAG] &= (~alarm);
 				  *(map + PANEL13_OVERCURR_FLAG) &= (~alarm);
+				  Reg[KWH_B2_OFFSET + 63 + i].reg_d.reg_value = 0x0000;
+				  *(map + KWH_B2_OFFSET + 63 + i) = 0x0000;
 				}
 			  }
 			}
@@ -4429,7 +5013,9 @@ void Status_Update (unsigned int reg)
 
 		  if ((Data.array[PANEL14_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL11_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL12_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL13_OVERCURR_STATUS_FLAG] & 0x001FFFFF))
 		  {
-
+			branch_oc_count ++;
+			if(branch_oc_count >= 13)
+			{
 		    if(!event_flag[68])
 			{
 			  dummy = 68;
@@ -4439,8 +5025,10 @@ void Status_Update (unsigned int reg)
 			  alarm_flag = 0;
 			}
 		  }
+		}
 		  else
 		  {
+			branch_oc_count = 0;
 			if(event_flag[68])
 			{
 			  dummy = 69;
@@ -4451,25 +5039,25 @@ void Status_Update (unsigned int reg)
 			}
 		  }
            
-		//7539
-		  if ((Data.array[SEC_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL11_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL12_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL13_UNDERCURR_STATUS_FLAG] & 0x001FFFFF))
-		  {
-		    if(!event_flag[62])
-			{
-			  event_flag[62] = 1;
-			  alarm_status |= (1 << BRANCH_UNDER_CURRENT);
-			  alarm_flag = 0;
-			}
-		  }
-		  else
-		  {
-			if(event_flag[62])
-			{
-			  event_flag[62] = 0;
-			  alarm_status &= ~(1 << BRANCH_UNDER_CURRENT);
-			  alarm_flag = 0;
-			}
-		  }
+		// //7539
+		//   if ((Data.array[SEC_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL11_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL12_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL13_UNDERCURR_STATUS_FLAG] & 0x001FFFFF))
+		//   {
+		//     if(!event_flag[62])
+		// 	{
+		// 	  event_flag[62] = 1;
+		// 	  //alarm_status |= (1 << BRANCH_UNDER_CURRENT);
+		// 	  alarm_flag = 0;
+		// 	}
+		//   }
+		//   else
+		//   {
+		// 	if(event_flag[62])
+		// 	{
+		// 	  event_flag[62] = 0;
+		// 	  //alarm_status &= ~(1 << BRANCH_UNDER_CURRENT);
+		// 	  alarm_flag = 0;
+		// 	}
+		//   }
       
 	       break;  
 	    }
@@ -4600,19 +5188,23 @@ void Status_Update (unsigned int reg)
 		for (i=0; i<21; i++)
 		{
 		  alarm = 0x00000001 << i;
-	          //********************************OVER CURRENT Panel 1 Strip 1(1~21)*****************************//
+	    	//********************************OVER CURRENT Panel 1 Strip 1(1~21)*****************************//
 		  if(Data_In.word.wPanelAct[1].word.Active_Inactive[0] & alarm)
 		  {
 		    //printf("\nPanel21_Overcurrent_alarm\n");
 		    if ((Data.array[RMS_0_OFFSET + i] & 0x0000FFFF) > ((Data_In.word.Max_Min_Limit[1][i]) & 0xFFFF))
 			{
 			  Data.array[PANEL24_UNDERCURR_STATUS_FLAG] |= alarm;
+			  Reg[OVER_CURR_STATUS0 + i].reg_d.reg_value = 0xFFFF;
+			  *(map + OVER_CURR_STATUS0 + i) = 0xFFFF;
 			}
 		    else
 		    {
 		      if((Data.array[RMS_0_OFFSET + i] & 0x0000FFFF) < (((Data_In.word.Max_Min_Limit[1][i]) & 0xFFFF) - BRANCH_OC_HYSTER))
 			  {
 		       Data.array[PANEL24_UNDERCURR_STATUS_FLAG] &= (~alarm);
+		       Reg[OVER_CURR_STATUS0 + i].reg_d.reg_value = 0x0000;
+		       *(map + OVER_CURR_STATUS0 + i) = 0x0000;
 			  }
 		    }
 		  }
@@ -4628,12 +5220,16 @@ void Status_Update (unsigned int reg)
 		    if ((Data.array[RMS_0_OFFSET + 21 + i] & 0x0000FFFF) > ((Data_In.word.Max_Min_Limit[1][21+i]) & 0xFFFF))
 			{
 			  Data.array[PANEL21_OVERCURR_STATUS_FLAG] |= alarm;
+			  Reg[OVER_CURR_STATUS0 + 21 + i].reg_d.reg_value = 0xFFFF;
+			  *(map + OVER_CURR_STATUS0 + 21 + i) = 0xFFFF;
 			}
 		    else
 		    {
 			  if((Data.array[RMS_0_OFFSET + 21 + i] & 0x0000FFFF) < (((Data_In.word.Max_Min_Limit[1][21+i]) & 0xFFFF) - BRANCH_OC_HYSTER))
 			  {
 				Data.array[PANEL21_OVERCURR_STATUS_FLAG] &= (~alarm);
+				Reg[OVER_CURR_STATUS0 + 21 + i].reg_d.reg_value = 0x0000;
+				*(map + OVER_CURR_STATUS0 + 21 + i) = 0x0000;
 			  }
 			}
 		  }
@@ -4654,6 +5250,8 @@ void Status_Update (unsigned int reg)
 			{
 			  Data.array[PANEL22_OVERCURR_STATUS_FLAG] |= alarm;
 			  *(map + PANEL22_OVERCURR_FLAG) |= (alarm);
+			  Reg[OVER_CURR_STATUS0 + 42 + i].reg_d.reg_value = 0xFFFF;
+			  *(map + OVER_CURR_STATUS0 + 42 + i) = 0xFFFF;
 			}
 			else
 			{
@@ -4661,6 +5259,8 @@ void Status_Update (unsigned int reg)
 			  {
 				Data.array[PANEL22_OVERCURR_STATUS_FLAG] &= (~alarm);
 				*(map + PANEL22_OVERCURR_FLAG) &= (~alarm);}
+				Reg[OVER_CURR_STATUS0 + 42 + i].reg_d.reg_value = 0x0000;
+				*(map + OVER_CURR_STATUS0 + 42 + i) = 0x0000;
 			  }
 			}
 			else
@@ -4675,6 +5275,8 @@ void Status_Update (unsigned int reg)
 				{
 					Data.array[PANEL23_OVERCURR_STATUS_FLAG] |= alarm;
 					*(map + PANEL23_OVERCURR_FLAG) |= (alarm);
+					Reg[OVER_CURR_STATUS0 + 63 + i].reg_d.reg_value = 0xFFFF;
+					*(map + OVER_CURR_STATUS0 + 63 + i) = 0xFFFF;
 				}
 				else
 				{
@@ -4682,6 +5284,8 @@ void Status_Update (unsigned int reg)
 					{
 						Data.array[PANEL23_OVERCURR_STATUS_FLAG] &= (~alarm);
 						*(map + PANEL23_OVERCURR_FLAG) &= (~alarm);
+						Reg[OVER_CURR_STATUS0 + 63 + i].reg_d.reg_value = 0x0000;
+						*(map + OVER_CURR_STATUS0 + 63 + i) = 0x0000;
 					}
 				}
 			}
@@ -4693,6 +5297,9 @@ void Status_Update (unsigned int reg)
 		    
 			if ((Data.array[PANEL24_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL21_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL22_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL23_OVERCURR_STATUS_FLAG] & 0x001FFFFF))
 			{
+				branch_oc_count1 ++;
+				if(branch_oc_count1 >= 13)
+				{
 
 				if(!event_flag[69])
 				{
@@ -4702,9 +5309,11 @@ void Status_Update (unsigned int reg)
 					write(fd5[1],&dummy,1);
 					event_flag[69] = 1;
 				}
+				}
 			}
 			else 
 			{
+				branch_oc_count1 = 0;
 				if(event_flag[69])
 				{
 					alarm_status &= ~(1 << BRANCH_OVER_CURRENT);
@@ -4714,25 +5323,65 @@ void Status_Update (unsigned int reg)
 					event_flag[69] = 0;
 				}
 			}
+			
+		
+			//Adding System Over load Alarm// 
+			unsigned int PRIMARY_KVA,PDU_KVA_OL;		
+			PRIMARY_KVA=(Data.word.Primary.KVA & 0xFFFF);		
+			PDU_KVA_OL=wPDU_Parameters[0]*100;	
+			if(PRIMARY_KVA>=PDU_KVA_OL)
+			{
+				system_overload_count++;
+				if(system_overload_count >= 13)
+				{	
+		    	if(!event_flag[49])
+				{
+			  		dummy = 49;
+			  		write(fd5[1],&dummy,1);
+			  		event_flag[49] = 1;
+			  		alarm_status |= (1 << SYSTEM_OL);
+			  		alarm_flag = 0;
+				}
+		  		}
+			}
+		  	else
+		  	{	system_overload_count = 0;
+				if(event_flag[49])
+				{
+			  		dummy = 50;
+			  		write(fd5[1],&dummy,1);
+			  		event_flag[49] = 0;
+			  		alarm_status &= ~(1 << SYSTEM_OL);
+			  		alarm_flag = 0;
+				}
+			}
+			
 
-			if ((Data.array[PANEL14_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL21_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL22_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL23_UNDERCURR_STATUS_FLAG] & 0x001FFFFF))
-			{
-				if(!event_flag[63])
-				{
-					event_flag[63] = 1;
-					alarm_status |= (1 << BRANCH_UNDER_CURRENT);
-					alarm_flag = 0;
-				}
-			}
-			else
-			{
-				if(event_flag[63])
-				{
-					event_flag[63] = 0;
-					alarm_status &= ~(1 << BRANCH_UNDER_CURRENT);
-					alarm_flag = 0;
-				}
-			}
+			
+
+			
+		//	Data.word.System_Parameter.Fan12RmsCurrent = 1;
+			
+			
+		
+			// if ((Data.array[PANEL14_OVERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL21_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL22_UNDERCURR_STATUS_FLAG] & 0x001FFFFF) || (Data.array[PANEL23_UNDERCURR_STATUS_FLAG] & 0x001FFFFF))
+			// {
+			// 	if(!event_flag[63])
+			// 	{
+			// 		event_flag[63] = 1;
+			// 		//alarm_status |= (1 << BRANCH_UNDER_CURRENT);
+			// 		alarm_flag = 0;
+			// 	}
+			// }
+			// else
+			// {
+			// 	if(event_flag[63])
+			// 	{
+			// 		event_flag[63] = 0;
+			// 		//alarm_status &= ~(1 << BRANCH_UNDER_CURRENT);
+			// 		alarm_flag = 0;
+			// 	}
+			// }
       
 	       
 	        break;  
@@ -4757,7 +5406,7 @@ void Max_Min_Parameter(unsigned int reg)
 	  {
 		case PRIMARY:
 		{
-		  if (((Data.word.Max_Min_Para[0].Max_Volt_PhaseA & 0xFFFF) < (Data.word.Primary.L2N_Volt_Phase_A&0xFFFF)) || ((Data.word.Max_Min_Para[0].Max_Volt_PhaseA & 0xFFFF) == 0xFFFF))
+ 		if (((Data.word.Max_Min_Para[0].Max_Volt_PhaseA & 0xFFFF) < (Data.word.Primary.L2N_Volt_Phase_A&0xFFFF)) || ((Data.word.Max_Min_Para[0].Max_Volt_PhaseA & 0xFFFF) == 0xFFFF))
 		  {
 			Data.word.Max_Min_Para[0].Max_Volt_PhaseA = ((unsigned long)(0xA00 << 16))|((Data.word.Primary.L2N_Volt_Phase_A&0xFFFF));
 			
@@ -4857,6 +5506,90 @@ void Max_Min_Parameter(unsigned int reg)
 		break;
 	    case SEC3:
 		break;
+		
+		case SEC: 
+		{
+			
+      		  if (((Data.word.Sys.Max_Volt_PhaseA & 0xFFFF) < (Data.word.Secondary.L2N_Volt_Phase_A&0xFFFF)) || ((Data.word.Sys.Max_Volt_PhaseA & 0xFFFF) == 0xFFFF))
+		  {
+			Data.word.Sys.Max_Volt_PhaseA = ((unsigned long)(0x111 << 16))|((Data.word.Secondary.L2N_Volt_Phase_A&0xFFFF));
+
+			
+		  }
+		  if (((Data.word.Sys.Max_Volt_PhaseB&0xFFFF) < (Data.word.Secondary.L2N_Volt_Phase_B&0xFFFF)) || ((Data.word.Sys.Max_Volt_PhaseB&0xFFFF) == 0xFFFF))
+		  {
+			Data.word.Sys.Max_Volt_PhaseB = ((unsigned long)(0x112 << 16))|((Data.word.Secondary.L2N_Volt_Phase_B&0xFFFF));
+			
+			
+			
+		  }
+		  if (((Data.word.Sys.Max_Volt_PhaseC&0xFFFF) < (Data.word.Secondary.L2N_Volt_Phase_C&0xFFFF)) || ((Data.word.Sys.Max_Volt_PhaseC&0xFFFF) == 0xFFFF))
+		  {
+			Data.word.Sys.Max_Volt_PhaseC = ((unsigned long)(0x113 << 16))|((Data.word.Secondary.L2N_Volt_Phase_C&0xFFFF));
+			
+			
+			
+		  }
+		  if (((Data.word.Sys.Min_Volt_PhaseA&0xFFFF) > (Data.word.Secondary.L2N_Volt_Phase_A&0xFFFF)) || ((Data.word.Sys.Min_Volt_PhaseA&0xFFFF) == 0))
+	  	  {
+		    Data.word.Sys.Min_Volt_PhaseA = ((unsigned long)(0x114 << 16))|((Data.word.Secondary.L2N_Volt_Phase_A&0xFFFF));
+		    
+		    
+		    
+		  }
+		  if (((Data.word.Sys.Min_Volt_PhaseB&0xFFFF) > (Data.word.Secondary.L2N_Volt_Phase_B&0xFFFF)) || ((Data.word.Sys.Min_Volt_PhaseB&0xFFFF) == 0))
+		  {
+			Data.word.Sys.Min_Volt_PhaseB = ((unsigned long)(0x115 << 16))|((Data.word.Secondary.L2N_Volt_Phase_B&0xFFFF));
+			
+			
+			
+		  }
+		  if (((Data.word.Sys.Min_Volt_PhaseC&0xFFFF) > (Data.word.Secondary.L2N_Volt_Phase_C&0xFFFF)) || ((Data.word.Sys.Min_Volt_PhaseC&0xFFFF) == 0))
+		  {
+			Data.word.Sys.Min_Volt_PhaseC = ((unsigned long)(0x116 << 16))|((Data.word.Secondary.L2N_Volt_Phase_C&0xFFFF));
+			
+
+		  }
+		  if (((Data.word.Sys.Max_Curr_PhaseA&0xFFFF) < (Data.word.Secondary.RMS_Curr_Phase_A&0xFFFF)) || ((Data.word.Sys.Max_Curr_PhaseA&0xFFFF) == 0xFFFF))
+		  {
+			Data.word.Sys.Max_Curr_PhaseA = ((unsigned long)(0x117 << 16))|((Data.word.Secondary.RMS_Curr_Phase_A&0xFFFF));
+			
+			
+		  }
+		  if (((Data.word.Sys.Max_Curr_PhaseB&0xFFFF) < (Data.word.Secondary.RMS_Curr_Phase_B&0xFFFF)) || ((Data.word.Sys.Max_Curr_PhaseB&0xFFFF) == 0xFFFF))
+		  {
+			Data.word.Sys.Max_Curr_PhaseB = ((unsigned long)(0x118 << 16))|((Data.word.Secondary.RMS_Curr_Phase_B&0xFFFF));
+			
+		  }
+		  if (((Data.word.Sys.Max_Curr_PhaseC&0xFFFF) < (Data.word.Secondary.RMS_Curr_Phase_C&0xFFFF)) || ((Data.word.Sys.Max_Curr_PhaseC&0xFFFF) == 0xFFFF))
+		  {
+			Data.word.Sys.Max_Curr_PhaseC = ((unsigned long)(0x119 << 16))|((Data.word.Secondary.RMS_Curr_Phase_C&0xFFFF));
+			
+		  }
+		  if (((Data.word.Sys.Min_Curr_PhaseA&0xFFFF) > (Data.word.Secondary.RMS_Curr_Phase_A&0xFFFF)) || ((Data.word.Sys.Min_Curr_PhaseA&0xFFFF) == 0))
+		  {
+			Data.word.Sys.Min_Curr_PhaseA = ((unsigned long)(0x11A << 16))|((Data.word.Secondary.RMS_Curr_Phase_A&0xFFFF));
+			
+			
+		  }
+		  if (((Data.word.Sys.Min_Curr_PhaseB&0xFFFF) > (Data.word.Secondary.RMS_Curr_Phase_B&0xFFFF)) || ((Data.word.Sys.Min_Curr_PhaseB&0xFFFF) == 0))
+		  {
+			Data.word.Sys.Min_Curr_PhaseB = ((unsigned long)(0x11B << 16))|((Data.word.Secondary.RMS_Curr_Phase_B&0xFFFF));
+			
+		  }
+		  if (((Data.word.Sys.Min_Curr_PhaseC&0xFFFF) > (Data.word.Secondary.RMS_Curr_Phase_B&0xFFFF)) || ((Data.word.Sys.Min_Curr_PhaseC&0xFFFF) == 0))	
+		  {
+			Data.word.Sys.Min_Curr_PhaseC = ((unsigned long)(0x11C << 16))|((Data.word.Secondary.RMS_Curr_Phase_C&0xFFFF));
+			
+		  }
+
+			
+		 break;	
+		}
+		
+		
+		
+		
     //Data.word.Max_Min_Para.Min_Curr_PhaseA
 	    case PANEL1:
 		{
@@ -5095,10 +5828,12 @@ void Demand_Calc(unsigned int reg)
 		  {
 			(*(ptCurrDemandSum + i))+=(Data.array[SEC_OFFSET + i] & 0x0000FFFF);
 			(*(ptKwDemandSum + i))+= (Data.array[RMS_3_OFFSET + i] & 0x0000FFFF);
+			
 		  }	
 		  sFlag.pnl1_demand_chk_1sec = 0;
 		  wDemandSumCntr[0]++;
 		}
+		 
 
 		if (sFlag.pnl1_demand_chk_1hr)
 		{
@@ -5111,6 +5846,7 @@ void Demand_Calc(unsigned int reg)
 
 			Reg[SYS_KWH_ERROR + i].reg_d.reg_value = (*(ptCTCurDemand +i) & 0x0000FFFF);
                         *(map + SYS_KWH_ERROR) = (*(ptCTCurDemand +i) & 0x0000FFFF);
+            
 
 			Reg[CURR1_DEMAND + i].reg_d.reg_value = (*(ptCTKwDemand +i) & 0x0000FFFF);
 		        *(map + CURR1_DEMAND) = (*(ptCTKwDemand +i) & 0x0000FFFF);
@@ -5178,6 +5914,7 @@ void Demand_Calc(unsigned int reg)
 		  {
 			(*(ptCurrDemandSum + i))+=(Data.array[RMS_1_OFFSET + i] & 0x0000FFFF);
 			(*(ptKwDemandSum + i))+= (Data.array[KW_1_OFFSET + i] & 0x0000FFFF);
+			printf("CurrDemand %d \n",ptCurrDemandSum + i);
 		  }
 		  sFlag.pnl3_demand_chk_1sec = 0;
 		  wDemandSumCntr[2]++;
@@ -5265,7 +6002,7 @@ void SetDefault()
 	Data_In.word.wSysInfo.word.wNominal_OPVolt = (0x01070000 | (wPDU_Parameters[19] & 0xFFFF));
 
 
-	Data_In.word.wSysInfo.word.PDC_ID = (0x01190000 | 1);
+	Data_In.word.wSysInfo.word.PDC_ID = (0x01210000 | 1);
 	//Data_In.word.wSysInfo.word.wPDCType = (0x012D0000 | INPUT_SINGLE);
 	Data_In.word.wSysInfo.word.wConfiguration = (0x01040000 | 0x200);
 
@@ -5307,14 +6044,20 @@ void CalculateThreshold()
 {
 	unsigned int i,j,k,pri,sec;
 
-	wPri_Thd.word.wPhaseA_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*90)/100;	
-	wPri_Thd.word.wPhaseB_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*90)/100;
-	wPri_Thd.word.wPhaseC_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*90)/100;
+	// wPri_Thd.word.wPhaseA_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*90)/100;	
+	// wPri_Thd.word.wPhaseB_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*90)/100;
+	// wPri_Thd.word.wPhaseC_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*90)/100;
+	wPri_Thd.word.wPhaseA_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*(100 - th_limits[0]))/100;	
+	wPri_Thd.word.wPhaseB_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*(100 - th_limits[0]))/100;
+	wPri_Thd.word.wPhaseC_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*(100 - th_limits[0]))/100;
 
 	
-	wPri_Thd.word.wPhaseA_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*110)/100;
-	wPri_Thd.word.wPhaseB_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*110)/100;
-	wPri_Thd.word.wPhaseC_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*110)/100;
+	// wPri_Thd.word.wPhaseA_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*110)/100;
+	// wPri_Thd.word.wPhaseB_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*110)/100;
+	// wPri_Thd.word.wPhaseC_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*110)/100;
+	wPri_Thd.word.wPhaseA_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*(100 + th_limits[1]))/100;
+	wPri_Thd.word.wPhaseB_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*(100 + th_limits[1]))/100;
+	wPri_Thd.word.wPhaseC_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*(100 + th_limits[1]))/100;
 
 	dwMathBuff = ((unsigned long)(Data_In.word.wSysInfo.word.wPowerCapacity & 0x0000FFFF))*1000;
 
@@ -5336,32 +6079,50 @@ void CalculateThreshold()
 
 	// Secondary Parameters Default
  
-  if (no_xfmr)    //12345
-    {
-    	wSec_Thd.word.wPhaseA_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*90)/100;	
-    	wSec_Thd.word.wPhaseB_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*90)/100;
-    	wSec_Thd.word.wPhaseC_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*90)/100;
+	if (no_xfmr)    //12345
+	{
+		// wSec_Thd.word.wPhaseA_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*90)/100;	
+		// wSec_Thd.word.wPhaseB_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*90)/100;
+		// wSec_Thd.word.wPhaseC_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*90)/100;
+		wSec_Thd.word.wPhaseA_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*(100 - th_limits[2]))/100;	
+		wSec_Thd.word.wPhaseB_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*(100 - th_limits[2]))/100;
+		wSec_Thd.word.wPhaseC_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*(100 - th_limits[2]))/100;
 
-    	wSec_Thd.word.wPhaseA_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*110)/100;
-    	wSec_Thd.word.wPhaseB_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*110)/100;
-    	wSec_Thd.word.wPhaseC_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*110)/100;
+		// wSec_Thd.word.wPhaseA_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*110)/100;
+		// wSec_Thd.word.wPhaseB_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*110)/100;
+		// wSec_Thd.word.wPhaseC_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*110)/100;
+		wSec_Thd.word.wPhaseA_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*(100 + th_limits[3]))/100;
+		wSec_Thd.word.wPhaseB_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*(100 + th_limits[3]))/100;
+		wSec_Thd.word.wPhaseC_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*(100 + th_limits[3]))/100;
+	}
+	else
+	{
+		// wSec_Thd.word.wPhaseA_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*90)/100; 
+		// wSec_Thd.word.wPhaseB_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*90)/100;
+		// wSec_Thd.word.wPhaseC_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*90)/100;
+		wSec_Thd.word.wPhaseA_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*(100 - th_limits[0]))/100; 
+		wSec_Thd.word.wPhaseB_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*(100 - th_limits[0]))/100;
+		wSec_Thd.word.wPhaseC_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*(100 - th_limits[0]))/100;
 
-    }
-else
-  {
-    wSec_Thd.word.wPhaseA_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*90)/100; 
-    wSec_Thd.word.wPhaseB_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*90)/100;
-    wSec_Thd.word.wPhaseC_UnderVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*90)/100;
-
-    wSec_Thd.word.wPhaseA_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*110)/100;
-    wSec_Thd.word.wPhaseB_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*110)/100;
-    wSec_Thd.word.wPhaseC_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*110)/100;
-   }
+		// wSec_Thd.word.wPhaseA_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*110)/100;
+		// wSec_Thd.word.wPhaseB_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*110)/100;
+		// wSec_Thd.word.wPhaseC_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*110)/100;
+		wSec_Thd.word.wPhaseA_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*(100 + th_limits[1]))/100;
+		wSec_Thd.word.wPhaseB_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*(100 + th_limits[1]))/100;
+		wSec_Thd.word.wPhaseC_OverVolt = ((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*(100 + th_limits[1]))/100;
+	}
 
 
 	dwMathBuff = ((unsigned long)(Data_In.word.wSysInfo.word.wPowerCapacity & 0x0000FFFF))*1000;
 
-	dwMathBuff = (dwMathBuff*10)/((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*3);
+	if(no_xfmr)
+	{
+		dwMathBuff = (dwMathBuff*10)/((Data_In.word.wSysInfo.word.wNominal_OPVolt & 0x0000FFFF)*3);
+	}
+	else
+	{
+		dwMathBuff = (dwMathBuff*10)/((Data_In.word.wSysInfo.word.wNominal_IPVolt & 0x0000FFFF)*3);
+	}
 	i=dwMathBuff/3;
 
 	
@@ -5387,7 +6148,10 @@ void KWH_Calc(unsigned int reg)
 	unsigned int	*ptKWH_Error;
 	static unsigned int 	dummy_cntr;
 	unsigned long kw_dwMathBuff; 
-	ULONG_2WORD kw_dwCalcBuff[6];
+	ULONG_2WORD kw_dwCalcBuff[7];
+	unsigned int kwh_total[168];
+	unsigned int kwh_data[168];
+	
 
 	dummy_cntr++;
 	switch (reg)
@@ -5434,7 +6198,8 @@ void KWH_Calc(unsigned int reg)
 		pthread_mutex_unlock(&kw_lock1);
 
 		pthread_mutex_lock(&kw_lock1);
-		*(map + 11) = (0x080A0000 | kw_dwCalcBuff[0].word[0]);
+		//*(map + 11) = (0x080A0000 | kw_dwCalcBuff[0].word[0]);
+		*(map + 11) = kw_dwCalcBuff[0].word[0];
 		pthread_mutex_unlock(&kw_lock1);
 		
 		pthread_mutex_lock(&kw_lock1);
@@ -5442,7 +6207,8 @@ void KWH_Calc(unsigned int reg)
 		pthread_mutex_unlock(&kw_lock1);
 
 		pthread_mutex_lock(&kw_lock1);
-		*(map + 10) = (0x080B0000 | kw_dwCalcBuff[0].word[1]);
+		//*(map + 10) = (0x080B0000 | kw_dwCalcBuff[0].word[1]);
+		*(map + 10) = kw_dwCalcBuff[0].word[1];
 		pthread_mutex_unlock(&kw_lock1);
 		
 		pthread_mutex_lock(&kw_lock1);
@@ -5495,7 +6261,8 @@ void KWH_Calc(unsigned int reg)
 		pthread_mutex_unlock(&kw_lock1);
 
 		pthread_mutex_lock(&kw_lock1);
-		*(map + PRIMARY_OFFSET + 11) = (0x090A0000 | kw_dwCalcBuff[1].word[0]);
+		//*(map + PRIMARY_OFFSET + 11) = (0x090A0000 | kw_dwCalcBuff[1].word[0]);
+		*(map + PRIMARY_OFFSET + 11) = kw_dwCalcBuff[1].word[0];
 		pthread_mutex_unlock(&kw_lock1);
 
 		pthread_mutex_lock(&kw_lock1);
@@ -5503,7 +6270,8 @@ void KWH_Calc(unsigned int reg)
 		pthread_mutex_unlock(&kw_lock1);
 
 		pthread_mutex_lock(&kw_lock1);
-		*(map + PRIMARY_OFFSET + 10) = (0x090B0000 | kw_dwCalcBuff[1].word[1]);
+		//*(map + PRIMARY_OFFSET + 10) = (0x090B0000 | kw_dwCalcBuff[1].word[1]);
+		*(map + PRIMARY_OFFSET + 10) = kw_dwCalcBuff[1].word[1];
 		pthread_mutex_unlock(&kw_lock1);
 		
 		pthread_mutex_lock(&kw_lock1);
@@ -5554,7 +6322,8 @@ void KWH_Calc(unsigned int reg)
 		pthread_mutex_unlock(&kw_lock1);
 
 		pthread_mutex_lock(&kw_lock1);
-		*(map + PRIMARY_OFFSET + 13) = (0x090C0000 | kw_dwCalcBuff[2].word[0]);
+		//*(map + PRIMARY_OFFSET + 13) = (0x090C0000 | kw_dwCalcBuff[2].word[0]);
+		*(map + PRIMARY_OFFSET + 13) = kw_dwCalcBuff[2].word[0];
 		pthread_mutex_unlock(&kw_lock1);
 		
 		pthread_mutex_lock(&kw_lock1);
@@ -5562,7 +6331,8 @@ void KWH_Calc(unsigned int reg)
 		pthread_mutex_unlock(&kw_lock1);
 
 		pthread_mutex_lock(&kw_lock1);
-		*(map + PRIMARY_OFFSET + 12) = (0x090D0000 | kw_dwCalcBuff[2].word[1]);
+		//*(map + PRIMARY_OFFSET + 12) = (0x090D0000 | kw_dwCalcBuff[2].word[1]);
+		*(map + PRIMARY_OFFSET + 12) = kw_dwCalcBuff[2].word[1];
 		pthread_mutex_unlock(&kw_lock1);
 		
 		pthread_mutex_lock(&kw_lock1);
@@ -5613,7 +6383,8 @@ void KWH_Calc(unsigned int reg)
 		pthread_mutex_unlock(&kw_lock1);
 
 		pthread_mutex_lock(&kw_lock1);
-		*(map + PRIMARY_OFFSET + 15) = (0x090E0000 | kw_dwCalcBuff[3].word[0]);
+		//*(map + PRIMARY_OFFSET + 15) = (0x090E0000 | kw_dwCalcBuff[3].word[0]);
+		*(map + PRIMARY_OFFSET + 15) = kw_dwCalcBuff[3].word[0];
 		pthread_mutex_unlock(&kw_lock1);
 		
 		pthread_mutex_lock(&kw_lock1);
@@ -5621,7 +6392,8 @@ void KWH_Calc(unsigned int reg)
 		pthread_mutex_unlock(&kw_lock1);
 
 		pthread_mutex_lock(&kw_lock1);
-		*(map + PRIMARY_OFFSET + 14) = (0x090F0000 | kw_dwCalcBuff[3].word[1]);
+		//*(map + PRIMARY_OFFSET + 14) = (0x090F0000 | kw_dwCalcBuff[3].word[1]);
+		*(map + PRIMARY_OFFSET + 14) = kw_dwCalcBuff[3].word[1];
 		pthread_mutex_unlock(&kw_lock1);
 		
 		pthread_mutex_lock(&kw_lock1);
@@ -5632,7 +6404,21 @@ void KWH_Calc(unsigned int reg)
 		Reg[PRIMARY_OFFSET + 14].reg_d.reg_value = (kw_dwCalcBuff[3].word[1]);
 		pthread_mutex_unlock(&kw_lock1);
 		
-
+		
+		
+		/* Added to calculate the total kWH for R,Y,B Phase */
+		
+		kw_dwCalcBuff[6].all = kw_dwCalcBuff[1].all + kw_dwCalcBuff[2].all + kw_dwCalcBuff[3].all;
+	//	Data.word.Sys.sec_KWH_Lo = (kw_dwCalcBuff[6].word[0]&0xFFFF);
+	//	Data.word.Sys.sec_KWH_Hi = (kw_dwCalcBuff[6].word[1]&0xFFFF);	
+		
+		Reg[STATUS_UPDATE + 1].reg_d.reg_value = (kw_dwCalcBuff[6].word[0]&0xFFFF);
+		Reg[STATUS_UPDATE].reg_d.reg_value = (kw_dwCalcBuff[6].word[1]&0xFFFF);			
+		
+		*(map + STATUS_UPDATE + 1) = (kw_dwCalcBuff[6].word[0]&0xFFFF);
+		*(map + STATUS_UPDATE) = (kw_dwCalcBuff[6].word[1]&0xFFFF);	
+		*(map + FW_VERSION0 + 3) = kw_dwCalcBuff[6].all;
+		
 		break; 
 
 	  case PANEL1:
@@ -5668,17 +6454,19 @@ void KWH_Calc(unsigned int reg)
 			kw_dwCalcBuff[4].all += (unsigned long)kw_dwMathBuff;
 			pthread_mutex_unlock(&kw_lock1);
 
-			if (kw_dwCalcBuff[4].all > 999999999)
-				kw_dwCalcBuff[4].all -= 999999999;
+			if (kw_dwCalcBuff[4].all > 999999998)
+				kw_dwCalcBuff[4].all -= 999999998;
 
 			*(map + KWH_S_OFFSET + i) = kw_dwCalcBuff[4].all;
 			
 			pthread_mutex_lock(&kw_lock1);
 			Data.array[PANEL24_OVERCURR_STATUS_FLAG + (i*2)] = ((((0x2D00|(i*2))|(0<<14))<<16) | kw_dwCalcBuff[4].word[0]);
 			pthread_mutex_unlock(&kw_lock1);
+
 			pthread_mutex_lock(&kw_lock1);
 			*(map + PANEL24_OVERCURR_FLAG + (i*2)) = (unsigned short)kw_dwCalcBuff[4].word[0];
 			pthread_mutex_unlock(&kw_lock1);
+
 			pthread_mutex_lock(&kw_lock1);
 			Reg[PANEL24_OVERCURR_FLAG + (i*2)].reg_d.reg_value = (unsigned short)kw_dwCalcBuff[4].word[0];
 			pthread_mutex_unlock(&kw_lock1);
@@ -5686,13 +6474,16 @@ void KWH_Calc(unsigned int reg)
 			pthread_mutex_lock(&kw_lock1);
 			Data.array[PANEL24_OVERCURR_STATUS_FLAG + (i*2) + 1] = ((((0x2D00|(i*2 + 1))|(0<<14))<<16) | kw_dwCalcBuff[4].word[1]);
 			pthread_mutex_unlock(&kw_lock1);
+
 			pthread_mutex_lock(&kw_lock1);
 			*(map + PANEL24_OVERCURR_FLAG + (i*2) + 1) = (unsigned short)kw_dwCalcBuff[4].word[1];
 			pthread_mutex_unlock(&kw_lock1);
+			
 			pthread_mutex_lock(&kw_lock1);
 			Reg[PANEL24_OVERCURR_FLAG + (i*2) + 1].reg_d.reg_value = (unsigned short)kw_dwCalcBuff[4].word[1];
 			pthread_mutex_unlock(&kw_lock1);
 
+			kwh_total[i] = ((kw_dwCalcBuff[4].word[1]*65536) + (kw_dwCalcBuff[4].word[0]));
 		}
 
 		break;
@@ -5754,26 +6545,58 @@ void KWH_Calc(unsigned int reg)
 			Reg[KWH0_OFFSET + (i*2) + 1].reg_d.reg_value = (unsigned short)kw_dwCalcBuff[5].word[1];
 			pthread_mutex_unlock(&kw_lock1);
 
+			
+			kwh_total[i+84] = ((kw_dwCalcBuff[5].word[1]*65536) + (kw_dwCalcBuff[5].word[0]));
+
+		}
+
+		for(i=0; i<84 ;i++)
+		{
+			kwh_data[i] = kwh_total[i];
+			kwh_data[i+84] = kwh_total[i+84];
 		}
 		break;
 
 	  default:
 		break;
 	}
-  
+
+	/***************************Kwh data for BMS file creation******************************************/
+	        kwhvalue_fd = open("/etc/Kwh_data",O_RDWR|O_CREAT,S_IRUSR);
+            if (kwhvalue_fd != -1)
+            {    
+                for (i=0; i< 168 ; i++)
+                {        
+					 kwh_data[i] = kwh_data[i];
+                     dprintf( kwhvalue_fd,"%d\n",kwh_data[i]);
+                        //    printf("entered in status");
+                }
+            }   
+            else
+            {
+                read(kwhvalue_fd, kwhvalue_buff,4);
+                Kwh_data = atoi(kwhvalue_buff);
+                Data.word.Sys.AlarmStatus3 = ((0x109 << 16) | (Kwh_data));
+            }
+    		close(kwhvalue_fd);
 }
 
 void System_Status_Update(void)
 {
 	//unsigned short  system_stat;
 	unsigned char alarm; 
+	unsigned int alm_offset;
 	unsigned char dummy_char;
 	static unsigned short panel_count = 0;
 	static unsigned short panel_count1 = 0;
 	static unsigned short epo_count = 0;
-	static unsigned short repo_count = 0;	
+	static unsigned short repo_count = 0;
+	static unsigned short epo_init_count = 0;
+	static unsigned short epo_init_flag = 0;	
 	static unsigned short ip_breaker_status = 0;
 	static unsigned short ip_breaker_trip_status = 0;
+	int api_return;
+	static unsigned short common_count = 0;
 	
 	static unsigned short op_breaker_trip_status = 0;
 	static unsigned short tr_125_count = 0;
@@ -5787,309 +6610,505 @@ void System_Status_Update(void)
 	dwPriDevPhaseAB = ((Data.word.Primary.L2L_Volt_Phase_AB & 0x0000FFFF) > (Data.word.Primary.L2L_Volt_Phase_BC & 0x0000FFFF))?((Data.word.Primary.L2L_Volt_Phase_AB & 0x0000FFFF) - (Data.word.Primary.L2L_Volt_Phase_BC & 0x0000FFFF)):((Data.word.Primary.L2L_Volt_Phase_BC & 0x0000FFFF) - (Data.word.Primary.L2L_Volt_Phase_AB & 0x0000FFFF));
 	dwPriDevPhaseBC = ((Data.word.Primary.L2L_Volt_Phase_BC & 0x0000FFFF) > (Data.word.Primary.L2L_Volt_Phase_CA & 0x0000FFFF))?((Data.word.Primary.L2L_Volt_Phase_BC & 0x0000FFFF) - (Data.word.Primary.L2L_Volt_Phase_CA & 0x0000FFFF)):((Data.word.Primary.L2L_Volt_Phase_CA & 0x0000FFFF) - (Data.word.Primary.L2L_Volt_Phase_BC & 0x0000FFFF));
 	dwPriDevPhaseCA = ((Data.word.Primary.L2L_Volt_Phase_CA & 0x0000FFFF) > (Data.word.Primary.L2L_Volt_Phase_AB & 0x0000FFFF))?((Data.word.Primary.L2L_Volt_Phase_CA & 0x0000FFFF) - (Data.word.Primary.L2L_Volt_Phase_AB & 0x0000FFFF)):((Data.word.Primary.L2L_Volt_Phase_AB & 0x0000FFFF) - (Data.word.Primary.L2L_Volt_Phase_CA & 0x0000FFFF));
-		
+	if (epo_init_flag==0)
+	{
+	    epo_init_count++;
+            if (epo_init_count >= 3000){
+		epo_init_flag=1;
+	    }
+	}	
 	nos_i2c_read(0, 0x43, P14I0EE5V6408_GPIO_EXPANDER_INPUT_STATUS_REG, &dummy_char, 1);
-	Data.word.System_Status.EPO = (dummy_char >> 6);
-	Data_nv.word.System_Status.EPO = (dummy_char >> 6);
-	/*if (Data.word.System_Status.EPO == 0)
-	{
-	  epo_count++;
-	  if (epo_count >= 5)
-	  {
-	   if(!event_flag[25])
-	   {
-		dummy1 = 25;
-		event_flag[25] = 1;
-		write(fd5[1],&dummy1,1);
-	   }
-	  }
-	}
-	else
-	{
-	  epo_count = 0;
-	  if(event_flag[25])
-	  {
-		dummy1 = 26;
-		write(fd5[1],&dummy1,1);
-		event_flag[25] = 0;
-	  }
-	}*/
-	if (dummy_char >> 7)
-	  Data.word.System_Status.REPO = 0;
-	else
-	  Data.word.System_Status.REPO = 1;
-	
-	Data_nv.word.System_Status.REPO = (dummy_char >> 7);
-	/*if (Data.word.System_Status.REPO == 1)
-	{
-	  repo_count++;
-	  if (repo_count >= 5)
-	  {
-	   if(!event_flag[27])
-	   {
-		dummy1 = 27;
-		write(fd5[1],&dummy1,1);
-		event_flag[27] = 1;
-	   }
-	  }
-	}
-	else
-	{
-	  repo_count = 0;
-	  if(event_flag[27])
-	  {
-		dummy1 = 28;
-		write(fd5[1],&dummy1,1);
-		event_flag[27] = 0;
-	  }
-	}*/
-
-	// Circuit Breaker Status
-
-	nos_i2c_read(1, 0x43, P14I0EE5V6408_GPIO_EXPANDER_INPUT_STATUS_REG, &dummy_char, 1);
-	Data.word.System_Status.CB_Secondary_Trip = dummy_char;
-	Data_nv.word.System_Status.CB_Secondary_Trip = dummy_char;
-	if (no_xfmr)
-	{
-	if (Data.word.System_Status.CB_Secondary_Trip == 0)
-	{
-	  	status_count[0]++;
-		if(status_count[0] > 3)
+	// if(nos_i2c_read(0, 0x43, P14I0EE5V6408_GPIO_EXPANDER_INPUT_STATUS_REG, &dummy_char, 1) == -1)
+	// {
+	// 	i2c_init(0);
+	// }
+	// else
+	// {
+	//	EPO by Varun
+		Data.word.System_Status.EPO = (dummy_char >> 6);
+		Data_nv.word.System_Status.EPO = (dummy_char >> 6);
+		
+		if (dummy_char >> 6)
+		Data.word.System_Status.EPO = 1;
+		else
+		Data.word.System_Status.EPO = 0;
+		
+		if ((!Data.word.System_Status.EPO)&&(epo_init_flag==1))
 		{
-			if(!event_flag[4])
+		epo_count++;
+		if (epo_count >= 25)   //1 sec
+		{
+			if(!event_flag[7])
 			{
 				dummy1 = 23;
 				write(fd5[1],&dummy1,1);
-				event_flag[4] = 1;
-				alarm_status |= (1 << OP_BREAKER_TRIP);
+				event_flag[7] = 1;
+				alarm_status |= (1 << EPO_ALARM);
 				alarm_flag = 0;
 			}
 		}
-	}
-	else if ((Data.word.System_Status.CB_Secondary_Trip == 1))
-	{
-		status_count[0] = 0;
-		if(event_flag[4])
-		{
-			dummy1 = 24;
-			write(fd5[1],&dummy1,1);
-			event_flag[4] = 0;
-			//alarm_status &= (0 << OP_BREAKER);
-			alarm_status &= ~(1 << OP_BREAKER_TRIP);
-			alarm_flag = 0;
 		}
-	}
-	}
-	Data.word.System_Status.CB_Primary_Trip = (dummy_char >> 1);
-	Data_nv.word.System_Status.CB_Primary_Trip = (dummy_char >> 1);
-	if (Data.word.System_Status.CB_Primary_Trip == 0)
-	{
-		status_count[1]++;
-		if(status_count[1] > 3)
+		else 
 		{
-			if(!event_flag[1])
+			if(event_flag[7])
 			{
-				dummy1 = 8;
+				epo_count = 0;
+				dummy1 = 9;
 				write(fd5[1],&dummy1,1);
-				event_flag[1] = 1;
-				alarm_status |= (1 << IP_BREAKER_TRIP);
+				event_flag[7] = 0;
+				alarm_status &= ~(1 << EPO_ALARM);
 				alarm_flag = 0;
 			}
 		}
-	}
-	else if ((Data.word.System_Status.CB_Primary_Trip == 1))
-	{
-		status_count[1] = 0; 
-		if(event_flag[1])
+		//alarm_status |= (1 << EPO_ALARM);
+		//else
+		//alarm_status &= ~(1 << EPO_ALARM);
+		
+		
+		/*if (Data.word.System_Status.EPO == 0)
 		{
-			dummy1 = 9;
+		epo_count++;
+		if (epo_count >= 5)
+		{
+		if(!event_flag[25])
+		{
+			dummy1 = 25;
+			event_flag[25] = 1;
 			write(fd5[1],&dummy1,1);
-			event_flag[1] = 0;
-			alarm_status &= ~(1 << IP_BREAKER_TRIP);
-			alarm_flag = 0;
 		}
-	}
+		}
+		}
+		else
+		{
+		epo_count = 0;
+		if(event_flag[25])
+		{
+			dummy1 = 26;
+			write(fd5[1],&dummy1,1);
+			event_flag[25] = 0;
+		}
+		}*/
+		//REPO by Varun
+		if (dummy_char >> 7)
+		Data.word.System_Status.REPO = 0;
+		else
+		Data.word.System_Status.REPO = 1;
+		
+		Data_nv.word.System_Status.REPO = (dummy_char >> 7);
+		
+		if (!Data.word.System_Status.REPO)
+		{
+		repo_count++;
+		if (repo_count >= 25)				//1sec
+		{
+			if(!event_flag[67])
+					{
+						dummy1 = 69;
+						write(fd5[1],&dummy1,1);
+						event_flag[67] = 1;
+						alarm_status |= (1 << REPO_ALARM);
+						alarm_flag = 0;
+					}
+			
+		}
+		}
+		else 
+		{
+			repo_count = 0;
+			if(event_flag[67])
+			{
+				dummy1 = 68;
+				write(fd5[1],&dummy1,1);
+				event_flag[67] = 0;
+				alarm_status &= ~(1 << REPO_ALARM);
+				alarm_flag = 0;
+			}
+		}
+		//alarm_status |= (1 << REPO_ALARM);
+		//else 
+		//alarm_status &= ~(1 << REPO_ALARM);
+		
+		//Addding Common Alarm
+		
+		unsigned int alarm_status_flag,j;
+		
+	
+		
+//tested and verified for common alarm	||(event_flag[19])//removed
+
+
+
+		if(no_xfmr)
+		{
+			if((event_flag[7])||(event_flag[67])||(event_flag[0])||(event_flag[1])||(event_flag[2])||(event_flag[3])||(event_flag[4])||(event_flag[12])||(event_flag[13])||(event_flag[21])||(event_flag[25])||(event_flag[27])||(event_flag[33])||(event_flag[35])||(event_flag[36])||(event_flag[38])||(event_flag[39])||(event_flag[43])||(event_flag[45])||(event_flag[46])||(event_flag[49])||(event_flag[51])||(event_flag[53])||(event_flag[55])||(event_flag[66])||(event_flag[68])||(event_flag[69]))                    
+			{
+				common_count++;
+				if(common_count >= 13)				//500ms
+				{
+				alarm_status_flag=1;
+				}
+			}
+			else
+			{
+				common_count = 0;
+				alarm_status_flag=0;
+			}	
+		}
+		
+		else//without transformer mode 
+		{	
+			if((event_flag[7])||(event_flag[67])||(event_flag[0])||(event_flag[1])||(event_flag[13])||(event_flag[21])||(event_flag[25])||(event_flag[27])||(event_flag[38])||(event_flag[43])||(event_flag[45])||(event_flag[46])||(event_flag[49])||(event_flag[51])||(event_flag[53])||(event_flag[55])||(event_flag[66])||(event_flag[68])||(event_flag[69]))                    
+			{
+				common_count++;
+
+				if(common_count >= 13)
+				{
+				alarm_status_flag=1;
+				}
+			}
+			else
+			{
+				common_count = 0;
+				alarm_status_flag=0;
+			}
+		}	
+
+			
+			if (alarm_status_flag)
+			{ 
+			   Data.word.System_Status.FreqFail = 1;  
+			
+
+		  		tp_status |= (1 << COMMON_ALARM);
+				Reg[STATUS_UPDATE + 38].reg_d.reg_value = 0xFFFF;
+				*(map + STATUS_UPDATE + 38) = 0xFFFF;	
+			}
+			else
+			{
+				Data.word.System_Status.FreqFail = 0;
+				
+
+		  		tp_status &= ~(1 << COMMON_ALARM);
+		  		Reg[STATUS_UPDATE + 38].reg_d.reg_value = 0x0000;
+				*(map + STATUS_UPDATE + 38) = 0x0000;
+
+			}
+		
+			//printf("tp_status %d \n",tp_status);
+		/*if (Data.word.System_Status.REPO == 1)
+		{
+		repo_count++;
+		if (repo_count >= 5)
+		{
+		if(!event_flag[27])
+		{
+			dummy1 = 27;
+			write(fd5[1],&dummy1,1);
+			event_flag[27] = 1;
+		}
+		}
+		}
+		else
+		{
+		repo_count = 0;
+		if(event_flag[27])
+		{
+			dummy1 = 28;
+			write(fd5[1],&dummy1,1);
+			event_flag[27] = 0;
+		}
+		}*/
+
+		// Circuit Breaker Status
+	// }
+
+	
+	nos_i2c_read(1, 0x43, P14I0EE5V6408_GPIO_EXPANDER_INPUT_STATUS_REG, &dummy_char, 1);
+	// if(nos_i2c_read(1, 0x43, P14I0EE5V6408_GPIO_EXPANDER_INPUT_STATUS_REG, &dummy_char, 1) == -1)
+	// {
+	// 	i2c_init(1);
+	// }
+	// else
+	// {
+		Data.word.System_Status.CB_Secondary_Trip = dummy_char;
+		Data_nv.word.System_Status.CB_Secondary_Trip = dummy_char;
+		if (no_xfmr)
+		{
+			if (Data.word.System_Status.CB_Secondary_Trip == 0)
+			{
+				status_count[0]++;
+				if(status_count[0] > 3)
+				{
+					if(!event_flag[4])
+					{
+						dummy1 = 23;
+						write(fd5[1],&dummy1,1);
+						event_flag[4] = 1;
+						alarm_status |= (1 << OP_BREAKER_TRIP);
+						alarm_flag = 0;
+					}
+				}
+			}
+			else if ((Data.word.System_Status.CB_Secondary_Trip == 1))
+			{
+				status_count[0] = 0;
+				if(event_flag[4])
+				{
+					dummy1 = 24;
+					write(fd5[1],&dummy1,1);
+					event_flag[4] = 0;
+					//alarm_status &= (0 << OP_BREAKER);
+					alarm_status &= ~(1 << OP_BREAKER_TRIP);
+					alarm_flag = 0;
+				}
+			}
+		}
+		Data.word.System_Status.CB_Primary_Trip = (dummy_char >> 1);
+		Data_nv.word.System_Status.CB_Primary_Trip = (dummy_char >> 1);
+		if (Data.word.System_Status.CB_Primary_Trip == 0)
+		{
+			status_count[1]++;
+			if(status_count[1] > 3)
+			{
+				if(!event_flag[1])
+				{
+					dummy1 = 8;
+					write(fd5[1],&dummy1,1);
+					event_flag[1] = 1;
+					alarm_status |= (1 << IP_BREAKER_TRIP);
+					alarm_flag = 0;
+				}
+			}
+		}
+		else if ((Data.word.System_Status.CB_Primary_Trip == 1))
+		{
+			status_count[1] = 0; 
+			if(event_flag[1])
+			{
+				dummy1 = 9;
+				write(fd5[1],&dummy1,1);
+				event_flag[1] = 0;
+				alarm_status &= ~(1 << IP_BREAKER_TRIP);
+				alarm_flag = 0;
+			}
+		}
+	// }
 
 	
 	nos_i2c_read(0, 0x44, P14I0EE5V6408_GPIO_EXPANDER_INPUT_STATUS_REG, &dummy_char, 1);
-	
-	if (dummy_char & 1)
-	   Data.word.System_Status.Temp_125 = 1;
-	else
-	   Data.word.System_Status.Temp_125 = 0;
-	Data.word.System_Status.Temp_125 = (dummy_char & 1);
-	if (no_xfmr)
-	{
-	if (Data.word.System_Status.Temp_125 == 0)
-	{
-	   /*tr_125_count++;
-	   if (tr_125_count >= 5)
-	   {*/	  
-	     if(!event_flag[10])
-	     {
-	      dummy1 = 10;
-	      write(fd5[1],&dummy1,1);
-	      event_flag[10] = 1;
-	     }
-	   //}
-	}
-    else
-	{
-	   //tr_125_count = 0;  
-	   if(event_flag[10])
-	   {
-	     dummy1 = 11;
-             write(fd5[1],&dummy1,1);
-	     event_flag[10] = 0;
-	   }
-	}
-	}
-
-	if (dummy_char >> 1 & 1)
-	  Data.word.System_Status.Temp_150 = 1;
-	else
-	  Data.word.System_Status.Temp_150 = 0;
-
-	Data.word.System_Status.Temp_150 = ((dummy_char >> 1) & 1);
-	if (no_xfmr)
-	{
-		if (Data.word.System_Status.Temp_150 == 1)
+	// if(nos_i2c_read(0, 0x44, P14I0EE5V6408_GPIO_EXPANDER_INPUT_STATUS_REG, &dummy_char, 1) == -1)
+	// {
+	// 	i2c_init(0);
+	// }
+	// else
+	// {
+		if (dummy_char & 1)
+		Data.word.System_Status.Temp_125 = 1;
+		else
+		Data.word.System_Status.Temp_125 = 0;
+		Data.word.System_Status.Temp_125 = (dummy_char & 1);
+		if (no_xfmr)
 		{
-			status_count[2]++;
-			if(status_count[2] > 3)
+			if (Data.word.System_Status.Temp_125 == 0)
 			{
-				if(!event_flag[12])
+			/*tr_125_count++;
+			if (tr_125_count >= 5)
+			{*/	  
+				if(!event_flag[10])
 				{
-					dummy1 = 12;
+				dummy1 = 10;
+				write(fd5[1],&dummy1,1);
+				event_flag[10] = 1;
+				}
+			//}
+			}
+			else
+			{
+			//tr_125_count = 0;  
+			if(event_flag[10])
+			{
+				dummy1 = 11;
+				write(fd5[1],&dummy1,1);
+				event_flag[10] = 0;
+			}
+			}
+		}
+
+		if (dummy_char >> 1 & 1)
+		Data.word.System_Status.Temp_150 = 1;
+		else
+		Data.word.System_Status.Temp_150 = 0;
+
+		Data.word.System_Status.Temp_150 = ((dummy_char >> 1) & 1);
+		if (no_xfmr)
+		{
+			if (Data.word.System_Status.Temp_150 == 1)
+			{
+				status_count[2]++;
+				if(status_count[2] > 3)
+				{
+					if(!event_flag[12])
+					{
+						dummy1 = 12;
+						write(fd5[1],&dummy1,1);
+						event_flag[12] = 1;
+						alarm_status |= (1 << XMR_OT);
+						alarm_flag = 0;
+					}
+				}
+			}
+			else if (Data.word.System_Status.Temp_150 == 0)
+			{
+				status_count[2] = 0;
+				if(event_flag[12])
+				{
+					dummy1 = 13;
 					write(fd5[1],&dummy1,1);
-					event_flag[12] = 1;
-					alarm_status |= (1 << XMR_OT);
+					event_flag[12] = 0;
+					alarm_status &= ~(1 << XMR_OT);
 					alarm_flag = 0;
 				}
 			}
 		}
-		else if (Data.word.System_Status.Temp_150 == 0)
+		
+		Data.word.System_Status.CB_Primary = (dummy_char >> 5);
+		Data_nv.word.System_Status.CB_Primary = (dummy_char >> 5);
+		if (Data.word.System_Status.CB_Primary == 1)
 		{
-			status_count[2] = 0;
-			if(event_flag[12])
+			status_count[3]++;
+			if(status_count[3] > 3)
 			{
-				dummy1 = 13;
-				write(fd5[1],&dummy1,1);
-				event_flag[12] = 0;
-				alarm_status &= ~(1 << XMR_OT);
-				alarm_flag = 0;
-			}
-		}
-	}
-	
-	Data.word.System_Status.CB_Primary = (dummy_char >> 5);
-	Data_nv.word.System_Status.CB_Primary = (dummy_char >> 5);
-	if (Data.word.System_Status.CB_Primary == 1)
-	{
-	    status_count[3]++;
-		if(status_count[3] > 3)
-		{
-			if(!event_flag[0])
-			{
-				dummy1 = 1;
-				write(fd5[1],&dummy1,1);
-				event_flag[0] = 1;
-				alarm_status |= (1 << IP_BREAKER);
-				alarm_flag = 0;
-
-			}
-		}
-	}
-	else if ((Data.word.System_Status.CB_Primary == 0))
-	{
-		status_count[3] = 0;
-		if(event_flag[0])
-		{
-			dummy1 = 9;
-			write(fd5[1],&dummy1,1);
-			event_flag[0] =0;
-			alarm_status &= ~(1 << IP_BREAKER);
-			alarm_flag = 0;
-		}
-	}
-	Data.word.System_Status.CB_Secondary = (dummy_char >> 6);
-	Data_nv.word.System_Status.CB_Secondary = (dummy_char >> 6);
-	if (no_xfmr)
-	{
-		if (Data.word.System_Status.CB_Secondary == 1)
-		{
-			status_count[4]++;
-			if(status_count[4] > 3)
-			{
-				if(!event_flag[2])
+				if(!event_flag[0])
 				{
-					dummy1 = 5;
+					dummy1 = 1;
 					write(fd5[1],&dummy1,1);
-					event_flag[2] = 1;
-					alarm_status |= (1 << OP_BREAKER);
+					event_flag[0] = 1;
+					alarm_status |= (1 << IP_BREAKER);
 					alarm_flag = 0;
+
 				}
 			}
 		}
-		else if ((Data.word.System_Status.CB_Secondary == 0))
+		else if ((Data.word.System_Status.CB_Primary == 0))
 		{
-			status_count[4] = 0;
-			if(event_flag[2])
+			status_count[3] = 0;
+			if(event_flag[0])
 			{
-				dummy1 = 24;
+				dummy1 = 9;
 				write(fd5[1],&dummy1,1);
-				event_flag[2] = 0;
-				alarm_status &= ~(1 << OP_BREAKER);
+				event_flag[0] =0;
+				alarm_status &= ~(1 << IP_BREAKER);
 				alarm_flag = 0;
 			}
 		}
-	}
+		Data.word.System_Status.CB_Secondary = (dummy_char >> 6);
+		Data_nv.word.System_Status.CB_Secondary = (dummy_char >> 6);
+		if (no_xfmr)
+		{
+			if (Data.word.System_Status.CB_Secondary == 1)
+			{
+				status_count[4]++;
+				if(status_count[4] > 3)
+				{
+					if(!event_flag[2])
+					{
+						dummy1 = 5;
+						write(fd5[1],&dummy1,1);
+						event_flag[2] = 1;
+						alarm_status |= (1 << OP_BREAKER);
+						alarm_flag = 0;
+					}
+				}
+			}
+			else if ((Data.word.System_Status.CB_Secondary == 0))
+			{
+				status_count[4] = 0;
+				if(event_flag[2])
+				{
+					dummy1 = 24;
+					write(fd5[1],&dummy1,1);
+					event_flag[2] = 0;
+					alarm_status &= ~(1 << OP_BREAKER);
+					alarm_flag = 0;
+				}
+			}
+			
+		}
+		/*Data.word.System_Status.FreqFail = (dummy_char >> 4);			//SPD Fault detection
+		Data_nv.word.System_Status.FreqFail = (dummy_char >> 4);
+		
+		if (Data.word.System_Status.FreqFail == 0)
+		{
+			//status_count[3]++;
+			
+				if(!event_flag[50])
+				{
+					dummy1 = 1;
+					write(fd5[1],&dummy1,1);
+					event_flag[50] = 1;
+					alarm_status |= (1 << SPD_FAULT);
+					alarm_flag = 0;
+
+				}	
+		}
+		else if ((Data.word.System_Status.FreqFail == 1)) 
+		{
+			//status_count[3] = 0;
+			if(event_flag[50])
+			{
+				dummy1 = 9;
+				write(fd5[1],&dummy1,1);
+				event_flag[50] =0;
+				alarm_status &= ~(1 << SPD_FAULT);
+				alarm_flag = 0;
+			}
+		}*/
+			
+		
+	// }
     system_stat = ((Data.word.System_Status.REPO << 10)|(Data.word.System_Status.EPO << 9)|(Data.word.System_Status.GroundFault << 8)|(Data.word.System_Status.FreqFail << 7)|(Data.word.System_Status.VoltageUnbalance << 6)|(Data.word.System_Status.CB_Secondary_Trip << 5)|(Data.word.System_Status.CB_Primary_Trip << 4)|(Data.word.System_Status.Temp_150 << 3)|(Data.word.System_Status.Temp_125 << 2)|(Data.word.System_Status.CB_Secondary << 1)|(Data.word.System_Status.CB_Primary));
 	//printf("\nSystem Status : %x\n",system_stat);
 	Reg[SECONDARY_OFFSET].reg_d.reg_value = (system_stat & 0x0000FFFF);
 	*(map + SECONDARY_OFFSET) = (system_stat & 0x0000FFFF);
 
 	dry_position[0] = bit_position(dry_contact_flag[0]);
-	if (alarm_status & (1 << dry_position[0]))
+	if ((alarm_status | tp_status) & (1 << dry_position[0]))
 	   icos_io_set_port(0,0x43,0,dry_on_off_flag[0]);
-	else if (!(alarm_status & (1 << dry_position[0])))
+	else if (!((alarm_status | tp_status) & (1 << dry_position[0])))
 	   icos_io_set_port(0,0x43,0,((!dry_on_off_flag[0]) & 0x000F));
 
-	
-	
 
 	dry_position[1] = bit_position(dry_contact_flag[1]);
-	if (alarm_status & (1 << dry_position[1]))
+	if ((alarm_status | tp_status) & (1 << dry_position[1]))
 	   icos_io_set_port(0,0x43,1,dry_on_off_flag[1]);
-	else if (!(alarm_status & (1 << dry_position[1])))
+	else if (!((alarm_status | tp_status) & (1 << dry_position[1])))
 	   icos_io_set_port(0,0x43,1,((!dry_on_off_flag[1]) & 0x000F));
 	
 
 	dry_position[2] = bit_position(dry_contact_flag[2]);
-	if (alarm_status & (1 << dry_position[2]))
+	if ((alarm_status | tp_status) & (1 << dry_position[2]))
 	   icos_io_set_port(0,0x43,2,dry_on_off_flag[2]);
-	else if (!(alarm_status & (1 << dry_position[2])))
+	else if (!((alarm_status | tp_status) & (1 << dry_position[2])))
 	   icos_io_set_port(0,0x43,2,((!dry_on_off_flag[2]) & 0x000F));
 
 	dry_position[3] = bit_position(dry_contact_flag[3]);
-	if (alarm_status & (1 << dry_position[3]))
+	if ((alarm_status | tp_status) & (1 << dry_position[3]))
 	   icos_io_set_port(0,0x43,3,dry_on_off_flag[3]);
-	else if (!(alarm_status & (1 << dry_position[3])))
+	else if (!((alarm_status | tp_status) & (1 << dry_position[3])))
 	   icos_io_set_port(0,0x43,3,((!dry_on_off_flag[3]) & 0x000F));
 
 	dry_position[4] = bit_position(dry_contact_flag[4]);
-	if (alarm_status & (1 << dry_position[4]))
+	if ((alarm_status | tp_status) & (1 << dry_position[4]))
 	   icos_io_set_port(0,0x43,4,dry_on_off_flag[4]);
-	else if (!(alarm_status & (1 << dry_position[4])))
+	else if (!((alarm_status | tp_status) & (1 << dry_position[4])))
 	   icos_io_set_port(0,0x43,4,((!dry_on_off_flag[4]) & 0x000F));
 	   
-	   
-
 	dry_position[5] = bit_position(dry_contact_flag[5]);
-	if (alarm_status & (1 << dry_position[5]))
+	if ((alarm_status | tp_status) & (1 << dry_position[5]))
 	   icos_io_set_port(0,0x43,5,dry_on_off_flag[5]);
-	else if (!(alarm_status & (1 << dry_position[5])))
+	else if (!((alarm_status | tp_status) & (1 << dry_position[5])))
 	   icos_io_set_port(0,0x43,5,((!dry_on_off_flag[4]) & 0x000F));
+
 	
 #if 0
 	// DRY Contacts
@@ -6218,36 +7237,36 @@ void System_Status_Update(void)
 	  }
 	}
 
-       if ((Data.word.Secondary.RMS_Curr_Phase_A & 0x0000FFFF) && (Data.word.Secondary.RMS_Curr_Phase_B & 0x0000FFFF) && (Data.word.Secondary.RMS_Curr_Phase_B & 0x0000FFFF) && ((Data.word.Secondary.PF_Phase_A & 0x0000FFFF) != 0xFFFF) && ((Data.word.Secondary.PF_Phase_B & 0x0000FFFF) != 0xFFFF) && ((Data.word.Secondary.PF_Phase_C & 0x0000FFFF) != 0xFFFF))
+    if ((Data.word.Secondary.RMS_Curr_Phase_A & 0x0000FFFF) && (Data.word.Secondary.RMS_Curr_Phase_B & 0x0000FFFF) && (Data.word.Secondary.RMS_Curr_Phase_B & 0x0000FFFF) && ((Data.word.Secondary.PF_Phase_A & 0x0000FFFF) != 0xFFFF) && ((Data.word.Secondary.PF_Phase_B & 0x0000FFFF) != 0xFFFF) && ((Data.word.Secondary.PF_Phase_C & 0x0000FFFF) != 0xFFFF))
 	{
-	if ((Data.word.Secondary.PF_Phase_A & 0x0000FFFF) < OP_PF_LIMIT)
-	{
-	   Data.word.Sec_Status_Flag.PhaseA_PoorPF = 1;
-	}
-	else if ((Data.word.Secondary.PF_Phase_A & 0x0000FFFF) > OP_PF_LIMIT)
-	{
-	   Data.word.Sec_Status_Flag.PhaseA_PoorPF = 0;
-	}
+		if ((Data.word.Secondary.PF_Phase_A & 0x0000FFFF) < wSec_Thd.word.wPowerfactor)
+		{
+			Data.word.Sec_Status_Flag.PhaseA_PoorPF = 1;
+		}
+		else if ((Data.word.Secondary.PF_Phase_A & 0x0000FFFF) > wSec_Thd.word.wPowerfactor)
+		{
+			Data.word.Sec_Status_Flag.PhaseA_PoorPF = 0;
+		}
 
-	if ((Data.word.Secondary.PF_Phase_B & 0x0000FFFF) < OP_PF_LIMIT)
-	{
-	   Data.word.Sec_Status_Flag.PhaseB_PoorPF = 1;
-	}
-	else if ((Data.word.Secondary.PF_Phase_B & 0x0000FFFF) > OP_PF_LIMIT)
-	{
-	   Data.word.Sec_Status_Flag.PhaseB_PoorPF = 0;
-	}
+		if ((Data.word.Secondary.PF_Phase_B & 0x0000FFFF) < wSec_Thd.word.wPowerfactor)
+		{
+			Data.word.Sec_Status_Flag.PhaseB_PoorPF = 1;
+		}
+		else if ((Data.word.Secondary.PF_Phase_B & 0x0000FFFF) > wSec_Thd.word.wPowerfactor)
+		{
+			Data.word.Sec_Status_Flag.PhaseB_PoorPF = 0;
+		}
 
-	if ((Data.word.Secondary.PF_Phase_C & 0x0000FFFF) < OP_PF_LIMIT)
-	{
-	   Data.word.Sec_Status_Flag.PhaseC_PoorPF = 1;
+		if ((Data.word.Secondary.PF_Phase_C & 0x0000FFFF) < wSec_Thd.word.wPowerfactor)
+		{
+			Data.word.Sec_Status_Flag.PhaseC_PoorPF = 1;
+		}
+		else if ((Data.word.Secondary.PF_Phase_C & 0x0000FFFF) > wSec_Thd.word.wPowerfactor)
+		{
+			Data.word.Sec_Status_Flag.PhaseC_PoorPF = 0;
+		}
 	}
-	else if ((Data.word.Secondary.PF_Phase_C & 0x0000FFFF) > OP_PF_LIMIT)
-	{
-	   Data.word.Sec_Status_Flag.PhaseC_PoorPF = 0;
-	}
-	}
-      else
+    else
 	{
 	  Data.word.Sec_Status_Flag.PhaseA_PoorPF = 0;
 	  Data.word.Sec_Status_Flag.PhaseB_PoorPF = 0;
@@ -6507,6 +7526,10 @@ if(wPDU_Parameters[13] > 1)
 		
   } 
 
+
+
+	alarm_status &= alarm_cnfg_1;
+	
 	Data.word.Sys.AlarmStatus1 = ((0x101 << 16) | (alarm_status & 0xFFFF));
 	Data.word.Sys.AlarmStatus2 = ((0x102 << 16) | ((alarm_status & 0xFFFF0000) >> 16));
 	
@@ -6515,30 +7538,38 @@ if(wPDU_Parameters[13] > 1)
   //Data.word.Sys.AlarmStatus4 = ((0x10A << 16) | ((alarm_status1 & 0xFFFF0000) >> 16));        
 	
 	//*****************Added for sending alarms through modbus and BACnet*************************//
-	#if 0
+	
 	for (alm_offset=0; alm_offset <32; alm_offset++)
 	{  
-		Reg[ALARM_STATUS + alm_offset].reg_d.reg_value = ((alarm_status >> alm_offset) & 0x1);
-		*(map + ALARM_STATUS + alm_offset) = ((alarm_status >> alm_offset) & 0x1);
+		if((alarm_status >> alm_offset) & 0x1)
+		{
+			Reg[STATUS_UPDATE + 6 + alm_offset].reg_d.reg_value = 0xFFFF;
+			*(map + STATUS_UPDATE + 6 + alm_offset) = 0xFFFF;
+		}
+		else
+		{
+			Reg[STATUS_UPDATE + 6 +  alm_offset].reg_d.reg_value = 0x0000;
+			*(map + STATUS_UPDATE + 6 + alm_offset) = 0x0000;	
+		}
+			
 	}
 		
-	for (alm_offset1=0; alm_offset1 <32; alm_offset1++)
-	{  
-		Reg[ALARM_STATUS + alm_offset + alm_offset1].reg_d.reg_value = ((alarm_status1 >> alm_offset1) & 0x1); 
-		*(map + ALARM_STATUS + alm_offset + alm_offset1) = ((alarm_status1 >> alm_offset) & 0x1);
-	}
+//	for (alm_offset1=0; alm_offset1 <32; alm_offset1++)
+//	{  
+//		Reg[ALARM_STATUS + alm_offset + alm_offset1].reg_d.reg_value = ((alarm_status1 >> alm_offset1) & 0x1); 
+//		*(map + ALARM_STATUS + alm_offset + alm_offset1) = ((alarm_status1 >> alm_offset) & 0x1);
+//	}
 	
-	Reg[ALARM_STATUS + alm_offset + alm_offset1].reg_d.reg_value = (Data.word.Sys.AlarmStatus1 & 0xFFFF);
-	Reg[ALARM_STATUS + alm_offset + alm_offset1 + 1].reg_d.reg_value = (Data.word.Sys.AlarmStatus2 & 0xFFFF);
-	Reg[ALARM_STATUS + alm_offset + alm_offset1 + 2].reg_d.reg_value = (Data.word.Sys.AlarmStatus3 & 0xFFFF);
-	Reg[ALARM_STATUS + alm_offset + alm_offset1 + 3].reg_d.reg_value = (Data.word.Sys.AlarmStatus4 & 0xFFFF);
+//	Reg[ALARM_STATUS + alm_offset + alm_offset1].reg_d.reg_value = (Data.word.Sys.AlarmStatus1 & 0xFFFF);
+//	Reg[ALARM_STATUS + alm_offset + alm_offset1 + 1].reg_d.reg_value = (Data.word.Sys.AlarmStatus2 & 0xFFFF);
+//	Reg[ALARM_STATUS + alm_offset + alm_offset1 + 2].reg_d.reg_value = (Data.word.Sys.AlarmStatus3 & 0xFFFF);
+//	Reg[ALARM_STATUS + alm_offset + alm_offset1 + 3].reg_d.reg_value = (Data.word.Sys.AlarmStatus4 & 0xFFFF);
 
-	*(map + ALARM_STATUS + alm_offset + alm_offset1) = (Data.word.Sys.AlarmStatus1 & 0xFFFF);
-	*(map + ALARM_STATUS + alm_offset + alm_offset1 + 1) = (Data.word.Sys.AlarmStatus2 & 0xFFFF);
-	*(map + ALARM_STATUS + alm_offset + alm_offset1 + 2) = (Data.word.Sys.AlarmStatus3 & 0xFFFF);
-	*(map + ALARM_STATUS + alm_offset + alm_offset1 + 3) = (Data.word.Sys.AlarmStatus4 & 0xFFFF);
-	
-	#endif
+//	*(map + ALARM_STATUS + alm_offset + alm_offset1) = (Data.word.Sys.AlarmStatus1 & 0xFFFF);
+//	*(map + ALARM_STATUS + alm_offset + alm_offset1 + 1) = (Data.word.Sys.AlarmStatus2 & 0xFFFF);
+//	*(map + ALARM_STATUS + alm_offset + alm_offset1 + 2) = (Data.word.Sys.AlarmStatus3 & 0xFFFF);
+//	*(map + ALARM_STATUS + alm_offset + alm_offset1 + 3) = (Data.word.Sys.AlarmStatus4 & 0xFFFF);
+
 
 
 	//**********************************************End************************************//
@@ -6567,7 +7598,6 @@ if(wPDU_Parameters[13] > 1)
 		alarm = 4;
 		nos_i2c_write(0, 0x22, 0x02, &alarm, 1);
 	}
-
 }
 
 void AmbientTempCalc(void)
@@ -6582,20 +7612,24 @@ void AmbientTempCalc(void)
 	{
 		Data.word.System_Parameter.Ambient_Temp = ((0x600 << 16) | (0));
 		Reg[FW_VERSION0].reg_d.reg_value = (Data.word.System_Parameter.Ambient_Temp & 0x0000FFFF);
+		*(map + FW_VERSION0) = (Data.word.System_Parameter.Ambient_Temp & 0x0000FFFF);
 	}
 	else if(AdcAmbientTemp1 > 0x94)
 	{
 		Data.word.System_Parameter.Ambient_Temp = ((0x600 << 16) | (0x94));
 		Reg[FW_VERSION0].reg_d.reg_value = (Data.word.System_Parameter.Ambient_Temp & 0x0000FFFF);
+		*(map + FW_VERSION0) = (Data.word.System_Parameter.Ambient_Temp & 0x0000FFFF);
 	}
 	else
 	{
 		Data.word.System_Parameter.Ambient_Temp = ((0x600 << 16) | (((AdcAmbientTemp1 - 0x20)*5)/9));
 		Reg[FW_VERSION0].reg_d.reg_value = (Data.word.System_Parameter.Ambient_Temp & 0x0000FFFF);
+		*(map + FW_VERSION0) = (Data.word.System_Parameter.Ambient_Temp & 0x0000FFFF);
 	}
         //printf("\nAmbient Temperature Offset : %d\n",FW_VERSION0);	
 
 }
+
 /***********************New Process*************************/
 void ADC_process(void)
 {
@@ -6655,36 +7689,40 @@ static void icos_test_adc(int addr, int channel)
 
 		//Checks for Fan failure for all the 8 fans considering 10 samples of each at a time
 		//fan_num = temp_fannum;
-
-		for(i = 0;i < fan_num;i++)
+		
+		
+		if(no_xfmr && ((alarm_cnfg[0]>>9)&0x01))   
 		{
-			adc_flag = 1;
-			fan_alarm = 0x00000001 << i;
+			for(i = 0;i < fan_num;i++)
+			{
+				adc_flag = 1;
+				fan_alarm = 0x00000001 << i;
 
-			struck_count[i] = 0;
-			fail_count[i] = 0;
-			get_fan_status = get_adc_avg(adc_flag, chn_address[i], chn_number[i], &z_Offset[i], &fail_count[i], &struck_count[i]);
-			
-			if((fail_count[i] > fan_cntr_Parameters[0]) || (struck_count[i] > fan_cntr_Parameters[1]))
-			{
-				fan_err_cntr[i]++;
-			}
-			else
-			{
-				fan_err_cntr[i] = 0;
-			}
+				struck_count[i] = 0;
+				fail_count[i] = 0;
+				get_fan_status = get_adc_avg(adc_flag, chn_address[i], chn_number[i], &z_Offset[i], &fail_count[i], &struck_count[i]);
 				
-			if(fan_err_cntr[i] > fan_cntr_Parameters[2])
-			{
-				fan_err_status |= fan_alarm;
-			}
-			else
-			{
-				fan_err_status &= (~fan_alarm);
-			}
+				if((fail_count[i] > fan_cntr_Parameters[0]) || (struck_count[i] > fan_cntr_Parameters[1]))
+				{
+					fan_err_cntr[i]++;
+				}
+				else
+				{
+					fan_err_cntr[i] = 0;
+				}
+					
+				if(fan_err_cntr[i] > fan_cntr_Parameters[2])
+				{
+					fan_err_status |= fan_alarm;
+				}
+				else
+				{
+					fan_err_status &= (~fan_alarm);
+				}
 
+			}
 		}
-
+		
 		temp_and_err_status = ((unsigned int)(temperature_status << 16)|fan_err_status);
 		write(fd1[1], &temp_and_err_status, 4); 
 		system("sleep 4s");
@@ -6774,35 +7812,25 @@ int get_adc_avg(int adc_flag, int chn_addr, int chn_no, int *avg_value, int *cou
 	*jam_count = 0;   
 }
 
-
-
 void ntptimesync(void)
 {
-	//if(ntpsync_flag)
-	//{
-		ntp_fd = open("/home/root/ntp_update",O_RDONLY,S_IRUSR);
-		if(ntp_fd == -1)
-		{
-			printf("No ntp file present:");
-		}
-		else
-		{
-			system("/home/root/ntp_update");
-			//system("/usr/sbin/ntpdate -s -u 10.152.156.1");
-			//system("./ntp_update");
-			//printf("Synchronising time with ntp server\n");
-			//system("date");
-			//printf("ntpsync_flag\n");
-			epochtime_cntr = 1500;
-		}
-	//}
-	//else
-	//{
-	//	printf("Not in NTP mode\n");
-	//}
+	ntp_fd = open("/home/root/ntp_update",O_RDONLY,S_IRUSR);
+	if(ntp_fd == -1)
+	{
+		printf("No ntp file present:");
+	}
+	else
+	{
+		system("/home/root/ntp_update");
+		//system("/usr/sbin/ntpdate -s -u 10.152.156.1");
+		//system("./ntp_update");
+		//printf("Synchronising time with ntp server\n");
+		//system("date");
+		//printf("ntpsync_flag\n");
+		epochtime_cntr = 1500;
+	}
 	close(ntp_fd);
 }
-
 
 void config_process(void)
 {	
@@ -7378,633 +8406,642 @@ void event_process(void)
 
 	if(buzz_silence_fd == -1)
 	{
-	  buzz_silence_fd = open("/tmp/buzz_silence",O_RDWR|O_CREAT,S_IRUSR);
-	  if ( buzz_silence_fd == -1 )
-	  {
+		buzz_silence_fd = open("/tmp/buzz_silence",O_RDWR|O_CREAT,S_IRUSR);
+		if ( buzz_silence_fd == -1 )
+		{
 		perror("Error in buzz silence file open:");
-	  } 
-	  dprintf(buzz_silence_fd,"%d\n",1);
-
+		} 
+		dprintf(buzz_silence_fd,"%d\n",1);
 	} 
+
 	close(buzz_silence_fd);
 	time(&rawtime);
 	while(1)
 	{
-	  read(fd5[0],&result,4);
-	  cptr = (unsigned char*)&result;
-	  sptr = (unsigned short*)&result;
-	  nos_i2c_read(0,0x22,0x2,&alarm,1);
-	  fan_status = (unsigned short)*(sptr+1); 
-	  buzz_silence_fd = open("/tmp/buzz_silence",O_RDONLY,S_IRUSR);
+		read(fd5[0],&result,4);
+		cptr = (unsigned char*)&result;
+		sptr = (unsigned short*)&result;
 
-	  if (buzz_silence_fd == -1)
-	  {
-		perror("Error in buzz silence file open:");
-	  }
-	  read(buzz_silence_fd,buffer,3);
-	  buzz_status = atoi(buffer);
-	  close(buzz_silence_fd);
-#if 0
+		nos_i2c_read(0,0x22,0x2,&alarm,1);
 
-	  event_fd =open("/etc/alarm.log",O_CREAT|O_APPEND|O_RDWR|S_IRUSR);
-	  if (event_fd == -1)
-	  {
-		perror("Error in event file opening");
-	  }
-	  switch(*cptr)
-	  {
+		// if(nos_i2c_read(0,0x22,0x2,&alarm,1) == -1)
+		// {
+		// i2c_init(0);
+		// }
+
+		fan_status = (unsigned short)*(sptr+1); 
+		buzz_silence_fd = open("/tmp/buzz_silence",O_RDONLY,S_IRUSR);
+
+		if (buzz_silence_fd == -1)
+		{
+			perror("Error in buzz silence file open:");
+		}
+		read(buzz_silence_fd,buffer,3);
+		buzz_status = atoi(buffer);
+		close(buzz_silence_fd);
+	
+		#if 0
+
+		event_fd =open("/etc/alarm.log",O_CREAT|O_APPEND|O_RDWR|S_IRUSR);
+		if (event_fd == -1)
+		{
+			perror("Error in event file opening");
+		}
+		
+		switch(*cptr)
+		{
 		case 1:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","I/P Breaker OPEN");
-		  /*alarm = (alarm & 0x04);
-		  alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","I/P Breaker OPEN");
+			/*alarm = (alarm & 0x04);
+			alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;
+			break;
 		}
 		case 2:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","I/P Breaker CLOSE");
-		  /*alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","I/P Breaker CLOSE");
+			/*alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;
+			break;
 		}
 		case 3:
 		{
-		  if (no_xfmr)
-		  {
-		  	time(&rawtime);
-		  	dprintf(event_fd,"%s",ctime(&rawtime));
-		  	dprintf(event_fd,"%s\n","Fan Failure");
-		  	/*alarm = 12;
-		  	if(buzz_status)
-                         {
+			if (no_xfmr)
+			{
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Fan Failure");
+			/*alarm = 12;
+			if(buzz_status)
+							{
 				nos_i2c_write(0, 0x22, 0x02, &alarm, 1);
-                                //printf("\nBuzz enabled\n");
-                         }*/
+								//printf("\nBuzz enabled\n");
+							}*/
 			}
-		  break;
+			break;
 		}
 		case 4:
 		{
 			if (no_xfmr)
 			{
-		  	time(&rawtime);
-		  	dprintf(event_fd,"%s",ctime(&rawtime));
-		  	dprintf(event_fd,"%s\n","Fan Alarm - Recover");
-		  	/*alarm = (alarm & 0x04);
-		  	alarm = 1;
-		  	if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Fan Alarm - Recover");
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			{
 				nos_i2c_write(0, 0x22, 0x02, &alarm, 1);
 				//printf("\nBuzz disabled\n");
 			}*/
 			}
-		  break;
+			break;
 		}
 		case 5:                                                                      
 		{
 			if (no_xfmr)
 			{
-		  	time(&rawtime);
-		 	 	dprintf(event_fd,"%s",ctime(&rawtime));
-		  	dprintf(event_fd,"%s\n","O/P breaker OPEN");
-		  	/*alarm = 12;
-		  	if(buzz_status)
+			time(&rawtime);
+				dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","O/P breaker OPEN");
+			/*alarm = 12;
+			if(buzz_status)
 					nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 			}
-		  break;
+			break;
 		}
 		case 6:
 		{
 			if (no_xfmr)
 			{
-		  	time(&rawtime);
-		  	dprintf(event_fd,"%s",ctime(&rawtime));
-		  	dprintf(event_fd,"%s\n","O/P breaker CLOSE");
-		  	/*alarm = (alarm & 0x04);
-		  	alarm = 1;
-		  	if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","O/P breaker CLOSE");
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 					nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 			}
-		  break;
+			break;
 		}
 		case 7:                                                                       // Buzzer OFF Event
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Buzzer OFF");
-		  alarm &= 0xF7;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Buzzer OFF");
+			alarm &= 0xF7;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);
 
-		  break;
+			break;
 		}
 		case 8:                                                                       
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","I/P breaker Trip");
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","I/P breaker Trip");
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;
+			break;
 		}
 		case 9:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","I/P breaker- Recover");
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","I/P breaker- Recover");
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;
+			break;
 		}
-	
+
 		case 12:
 		{
-		  if (no_xfmr)
-		  {
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Transformer Temp above 150");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			if (no_xfmr)
+			{
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Transformer Temp above 150");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
-		  }
+			}
 
-		  break;    
+			break;    
 		}
-		
+
 		case 13:
 		{
-		  if (no_xfmr)
-		  {
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Transformer Temp above 150 - Recover");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			if (no_xfmr)
+			{
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Transformer Temp above 150 - Recover");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
-		  }
+			}
 
-		  break;    
+			break;    
 		}
-	
+
 		case 21:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Ground Fault");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Ground Fault");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 22:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Ground Fault OK");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Ground Fault OK");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 23:
 		{
 			if (no_xfmr)
 			{
-		  	time(&rawtime);
-		  	dprintf(event_fd,"%s",ctime(&rawtime));
-		  	dprintf(event_fd,"%s\n","O/P breaker Trip");    // Red light
-		  	/*alarm = 12;
-		  	if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","O/P breaker Trip");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 					nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 			}
-		  break;    
+			break;    
 		}
 		case 24:
 		{
 			if (no_xfmr)
 			{
-		  	time(&rawtime);
-		  	dprintf(event_fd,"%s",ctime(&rawtime));
-		  	dprintf(event_fd,"%s\n","O/P breaker - Recover");    // Green light
-		  	/*alarm = (alarm & 0x04);
-		  	alarm = 1;
-		  	if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","O/P breaker - Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 					nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 			}
-		  break;    
+			break;    
 		}
-	       case 25:
+			case 25:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Ouput Over VTHD");
-		  break;
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Ouput Over VTHD");
+			break;
 		}
-	       case 26:
+			case 26:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Ouput Over VTHD - Recover");
-		  break;
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Ouput Over VTHD - Recover");
+			break;
 		}
 
-	       case 27:
+			case 27:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Ouput Over Current THD");
-		  break;
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Ouput Over Current THD");
+			break;
 		}
-	       case 28:
+			case 28:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Ouput Over Current THD - Recover");
-		  break;
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Ouput Over Current THD - Recover");
+			break;
 		}	
-	
+
 		case 33:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Input A/B/C UnderVolt");    // Red light
-		  /*alarm = 12;
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Input A/B/C UnderVolt");    // Red light
+			/*alarm = 12;
 		if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		} 
 		case 34:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Input A/B/C UnderVolt - Recover");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Input A/B/C UnderVolt - Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
-		  break;    
+			break;    
 		} 
 		case 35:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Input A/B/C UnderCurrent");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Input A/B/C UnderCurrent");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 36:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Input A/B/C UnderCurrent - Recover");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
-		    nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Input A/B/C UnderCurrent - Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
+			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 37:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Over Neutral Current ");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Over Neutral Current ");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
 		break;    
 		}
 		case 38:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Over Neutral Current - Recover");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Over Neutral Current - Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 39:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Input A/B/C OverVolt");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Input A/B/C OverVolt");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 40:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Input A/B/C OverVolt - Recover");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
-		    nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Input A/B/C OverVolt - Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
+			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 41:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Input A/B/C OverCurrent");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Input A/B/C OverCurrent");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 42:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Input A/B/C OverCurrent - Recover");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Input A/B/C OverCurrent - Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 43:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C Panel Overload");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C Panel Overload");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 44:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C Panel Overload - Recover");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C Panel Overload - Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 45:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C Panel Overload 140%");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C Panel Overload 140%");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 46:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Poor PF");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Poor PF");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 47:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Poor PF - Recover");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Poor PF - Recover");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		/*case 48:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C OverITHD - Recover");    // Green light
-		  alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C OverITHD - Recover");    // Green light
+			alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);
 
 			break;    
 		}*/
 		case 49:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Input A/B/C HighCurrent");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
-		    nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Input A/B/C HighCurrent");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
+			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 50:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Input A/B/C HighCurrent - Recover");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Input A/B/C HighCurrent - Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 51:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C UnderVolt");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C UnderVolt");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 52:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C UnderVolt - Recover");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C UnderVolt - Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 53:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C OverVolt");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C OverVolt");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 54:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C OverVolt- Recover");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C OverVolt- Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 55:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C UnderCurrent");    // Red light
-		  /*alarm = 12;\
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C UnderCurrent");    // Red light
+			/*alarm = 12;\
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 56:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C UnderCurrent - Recover");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C UnderCurrent - Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 64:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C HighCurrent");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C HighCurrent");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 65:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C HighCurrent - Recover");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C HighCurrent - Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 66:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C OverCurrent");    // Red light
-		  /*alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C OverCurrent");    // Red light
+			/*alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
-		  break;    
+			break;    
 		}
 		case 67:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Output A/B/C OverCurrent - Recover");    // Green light
-		  /*alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Output A/B/C OverCurrent - Recover");    // Green light
+			/*alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);*/
 
 		break;    
 		}
 		case 68:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Branch Over Current Alarm");    // Green light
-		  alarm = 12;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Branch Over Current Alarm");    // Green light
+			alarm = 12;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);
 
-		  break;    
+			break;    
 		}
 		case 69:
 		{
-		  time(&rawtime);
-		  dprintf(event_fd,"%s",ctime(&rawtime));
-		  dprintf(event_fd,"%s\n","Branch Over Current Alarm - Recover");    // Green light
-		  alarm = (alarm & 0x04);
-		  alarm = 1;
-		  if(buzz_status)
+			time(&rawtime);
+			dprintf(event_fd,"%s",ctime(&rawtime));
+			dprintf(event_fd,"%s\n","Branch Over Current Alarm - Recover");    // Green light
+			alarm = (alarm & 0x04);
+			alarm = 1;
+			if(buzz_status)
 			nos_i2c_write(0, 0x22, 0x02, &alarm, 1);
 
-		  break;    
+			break;    
 		}
 		default:
 		{
-		  break;
+			break;
 		}
-	
-          }
 
-	  /*if (alarm_status == 0)
-	  {
-	      alarm = 1;
-              if(buzz_status)
+			}
+
+		/*if (alarm_status == 0)
+		{
+			alarm = 1;
+				if(buzz_status)
 		nos_i2c_write(0, 0x22, 0x02, &alarm, 1);
-	  }
-	  else if (alarm_status != 0)
-	  {
-	     alarm = 12;
-	     if(buzz_status)
+		}
+		else if (alarm_status != 0)
+		{
+			alarm = 12;
+			if(buzz_status)
 		nos_i2c_write(0, 0x22, 0x02, &alarm, 1);
-	  }*/ 
-          close(event_fd);
+		}*/ 
+			close(event_fd);
 #endif
 	}
 	
@@ -8035,7 +9072,8 @@ int BACnet_process(void)
 	  printf("BACnet thread create error\n");
 	  return -1;
 	}
-	if(pthread_create(&update_thread,NULL,BAC_update(map),NULL))
+	//if(pthread_create(&update_thread,NULL,BAC_update(map),NULL))
+        if(pthread_create(&update_thread,NULL,BAC_update,map))
 	{
 	  printf("BACnet update thread create error\n");
 	  return -1;
@@ -8055,109 +9093,154 @@ void* BAC_update(void* arg)
 
 	while(1)
 	{
-	  Analog_Input_Present_Value_Set(offset,(int)*(map+offset));//BACnet 
-	  offset++;
-	  if(offset == FIELD_TOTALENTRY)
-	  {
+		Analog_Input_Present_Value_Set(offset,(int)*(map+offset));//BACnet 
+		offset++;
+		if(offset == FIELD_TOTALENTRY)
+		{
 		offset = 0;
 		//sleep(1);
-        system("sleep 10s");
-	  }
-          
+		system("sleep 10s");
+		}
 	}
 }
 
 int bit_position(unsigned int value)
 {
-  unsigned char pos = 0;
-  unsigned int i = 1;
-
-  while (!(i & value))
-   {
-        i = i << 1;
-	//printf("\nPosition : %d\n",pos);
-        ++pos;
-   }
-
-
-  return pos;
+	unsigned char pos = 0;
+	unsigned int i = 1;
+	while (!(i & value))
+	{
+		i = i << 1;
+		//printf("\nPosition : %d\n",pos);Dynammic_sorting
+		++pos;
+	}
+	return pos;
 }
 
 void Dynammic_sorting(void)
 {
-   static short position = 0;
-   int i;
-   int Active_poles_panel1 = wPDU_Parameters[8];
-   int Active_poles_panel2 = wPDU_Parameters[10] - wPDU_Parameters[9] + 1;
-   int Active_poles_panel3 = wPDU_Parameters[12] - wPDU_Parameters[11] + 1;
+	static short position = 0;
+	int i,j;
+	int Active_poles_panel1 = wPDU_Parameters[8];
+	int Active_poles_panel2 = wPDU_Parameters[10] - wPDU_Parameters[9] + 1;
+	int Active_poles_panel3 = wPDU_Parameters[12] - wPDU_Parameters[11] + 1;
+
+	
 
 
-   /*for (i=0; i< (84*NO_OF_SBOARDS) ; i++)
-   {
-      if (i < wPDU_Parameters[8])
-      {
-         Reg[SYSTEMPARAMETER + position].reg_d.reg_value = Current_Buffer[i];
-         Data.array[SEC_OFFSET + position] = (((0x0D00|position) << 16) | Current_Buffer[i]);
-	 Reg[RMS1_OFFSET + position].reg_d.reg_value = KW_Buffer[i];
-	 Data.array[RMS_3_OFFSET + position] = (((0x1700|position) << 16) | KW_Buffer[i]);
-         position++;
-         
-      }
-      else if ((i >= (21*wPDU_Parameters[14])) && (i < (21*wPDU_Parameters[14] + Active_poles_panel2)))
-      {
-	 Reg[SYSTEMPARAMETER + position].reg_d.reg_value = Current_Buffer[i];
-	 Data.array[SEC_OFFSET + position] = (((0x0D00|position) << 16) | Current_Buffer[i]);
-	 Reg[RMS1_OFFSET + position].reg_d.reg_value = KW_Buffer[i];
-	 Data.array[RMS_3_OFFSET + position] = (((0x1700|position) << 16) | KW_Buffer[i]);
-         position++;
-	 
-      }
-      else if ((i >= (21*(wPDU_Parameters[14] + wPDU_Parameters[15]))) && (i < (21*(wPDU_Parameters[14] + wPDU_Parameters[15]) + Active_poles_panel3)))
-      {
-	 Reg[SYSTEMPARAMETER + position].reg_d.reg_value = Current_Buffer[i];
-	 Data.array[SEC_OFFSET + position] = (((0x0D00|position) << 16) | Current_Buffer[i]);
-	 Reg[RMS1_OFFSET + position].reg_d.reg_value = KW_Buffer[i];
-	 Data.array[RMS_3_OFFSET + position] = (((0x1700|position) << 16) | KW_Buffer[i]);
-         position++;
-	 //printf("Offset3: %d\n",i);
-      }
-   }  
-   position = 0;*/
+	/*for (i=0; i< (84*NO_OF_SBOARDS) ; i++)
+	{
+	if (i < wPDU_Parameters[8])
+	{
+	Reg[SYSTEMPARAMETER + position].reg_d.reg_value = Current_Buffer[i];
+	Data.array[SEC_OFFSET + position] = (((0x0D00|position) << 16) | Current_Buffer[i]);
+	Reg[RMS1_OFFSET + position].reg_d.reg_value = KW_Buffer[i];
+	Data.array[RMS_3_OFFSET + position] = (((0x1700|position) << 16) | KW_Buffer[i]);
+	position++;
 
-   for (i=0; i< (84*NO_OF_SBOARDS) ; i++)
-   {
-       if (Dynamic_Buffer[i] != 0)
-       {
-	 
-	 if (i < 168)
-	 {	
-		Reg[SYSTEMPARAMETER + position].reg_d.reg_value = Current_Buffer[Dynamic_Buffer[i] - 1];
-		*(map + SYSTEMPARAMETER + position) = Current_Buffer[Dynamic_Buffer[i] - 1];
-		Data.array[SEC_OFFSET + position] = (((0x0D00 | position) << 16) | Current_Buffer[Dynamic_Buffer[i] - 1]);
+	}
+	else if ((i >= (21*wPDU_Parameters[14])) && (i < (21*wPDU_Parameters[14] + Active_poles_panel2)))
+	{
+	Reg[SYSTEMPARAMETER + position].reg_d.reg_value = Current_Buffer[i];
+	Data.array[SEC_OFFSET + position] = (((0x0D00|position) << 16) | Current_Buffer[i]);
+	Reg[RMS1_OFFSET + position].reg_d.reg_value = KW_Buffer[i];
+	Data.array[RMS_3_OFFSET + position] = (((0x1700|position) << 16) | KW_Buffer[i]);
+	position++;
 
-		Reg[RMS1_OFFSET + position].reg_d.reg_value = KW_Buffer[Dynamic_Buffer[i] - 1];
-		*(map + RMS1_OFFSET + position) = KW_Buffer[Dynamic_Buffer[i] - 1];
-		Data.array[RMS_3_OFFSET + position] = (((0x1700 | position) << 16) | KW_Buffer[Dynamic_Buffer[i] - 1]);
-	 }
-	 if (i >= 168)
-	 {
+	}
+	else if ((i >= (21*(wPDU_Parameters[14] + wPDU_Parameters[15]))) && (i < (21*(wPDU_Parameters[14] + wPDU_Parameters[15]) + Active_poles_panel3)))
+	{
+	Reg[SYSTEMPARAMETER + position].reg_d.reg_value = Current_Buffer[i];
+	Data.array[SEC_OFFSET + position] = (((0x0D00|position) << 16) | Current_Buffer[i]);
+	Reg[RMS1_OFFSET + position].reg_d.reg_value = KW_Buffer[i];
+	Data.array[RMS_3_OFFSET + position] = (((0x1700|position) << 16) | KW_Buffer[i]);
+	position++;
+	//printf("Offset3: %d\n",i);
+	}
+	}  
+	position = 0;*/
+
+	for (i=0; i< (84*NO_OF_SBOARDS) ; i++)
+	{
+		if (Dynamic_Buffer[i] != 0)
+		{
+			if (i < 168)
+			{	
+				Reg[SYSTEMPARAMETER + position].reg_d.reg_value = Current_Buffer[Dynamic_Buffer[i] - 1];
+				*(map + SYSTEMPARAMETER + position) = Current_Buffer[Dynamic_Buffer[i] - 1];
+				Data.array[SEC_OFFSET + position] = (((0x0D00 | position) << 16) | Current_Buffer[Dynamic_Buffer[i] - 1]);
+
+				Reg[RMS1_OFFSET + position].reg_d.reg_value = KW_Buffer[Dynamic_Buffer[i] - 1];
+				*(map + RMS1_OFFSET + position) = KW_Buffer[Dynamic_Buffer[i] - 1];
+				Data.array[RMS_3_OFFSET + position] = (((0x1700 | position) << 16) | KW_Buffer[Dynamic_Buffer[i] - 1]);
+				
+			//	Reg[ITHD0_OFFSET + position].reg_d.reg_value = ITHD_Buffer[Dynamic_Buffer[i] - 1];
+			//	*(map + ITHD0_OFFSET + position) = ITHD_Buffer[Dynamic_Buffer[i] - 1];
+			//	Data.array[RMS_3_OFFSET + position] = (((0x4D00 | position) << 16) | ITHD_Buffer[Dynamic_Buffer[i] - 1]);
+			}
+			if (i >= 168)
+			{
+				//Reg[SYSTEMPARAMETER + position].reg_d.reg_value = Current_Buffer[Dynamic_Buffer[i] - 1];
+				Data.array[RMS_1_OFFSET + (position - 168)] = (((0x4D00 | (position - 168)) << 16) | Current_Buffer[Dynamic_Buffer[i] - 1]);
+
+				//Reg[RMS3_OFFSET + position].reg_d.reg_value = KW_Buffer[Dynamic_Buffer[i] - 1];
+				Data.array[KW_1_OFFSET + (position - 168)] = (((0x5700 | (position - 168)) << 16) | KW_Buffer[Dynamic_Buffer[i] - 1]);
+			}
+			//printf("\nCurrent Data : %x\n",Data.array[SEC_OFFSET]);	
+			position++;
+			//printf("\nposition : %d\n",position);
+		}
 		
-	 	//Reg[SYSTEMPARAMETER + position].reg_d.reg_value = Current_Buffer[Dynamic_Buffer[i] - 1];
-		Data.array[RMS_1_OFFSET + (position - 168)] = (((0x4D00 | (position - 168)) << 16) | Current_Buffer[Dynamic_Buffer[i] - 1]);
-
-		//Reg[RMS3_OFFSET + position].reg_d.reg_value = KW_Buffer[Dynamic_Buffer[i] - 1];
-		Data.array[KW_1_OFFSET + (position - 168)] = (((0x5700 | (position - 168)) << 16) | KW_Buffer[Dynamic_Buffer[i] - 1]);
-	 }
-       //printf("\nCurrent Data : %x\n",Data.array[SEC_OFFSET]);	
-       position++;
-       //printf("\nposition : %d\n",position);
-       }
-   }
+	}
    position = 0;
 }
 
+#if 0
+void i2c_init(int bus_no)
+{
+	if(bus_no == 0)
+	{
+		nos_i2c_dev_close(0);
+		nos_i2c_bus_open(0);
+		usleep(100);
+		nos_i2c_device_open(0,0x43);//I2C open
+		usleep(100);
+		nos_i2c_device_open(0,0x44);
+		usleep(100);
+		nos_i2c_device_open(0,0x22);
+		icos_io_init(0,0x43);//Device soft reset and impedence setting
+		usleep(100);
+		icos_io_init(0,0x22);                              // For Alarm
 
+		icos_io_set_direction(0,0x43,0x3F,0x00);       // 0011 1111   ('0' for input(DRYA,DRYB,DRYC,DRYD,DRYE,DRYF) and '1' for output(REPO and EPO))
+		usleep(100);
+		icos_io_set_direction(0,0x44,0x04,0x00);	   // 0000 0100   ('0' for input (TEMP_RT1,TEMP_RT2,Aux_Power_Fail,ZCD,CBSTAT_M,CBSTAT_P1) and '1' for output (Fan_PWM))
 
+		usleep(100);
+		usleep(100);
 
+		buzz_cmd = 0x00;
+		nos_i2c_write(0, 0x22, 0x06, &buzz_cmd, 1);//icos_io_set_direction(0,0x22,0x06,0x00);			// for Alarm
+		usleep(100);
+		buzz_cmd = 0x01;
+		nos_i2c_write(0, 0x22, 0x02, &buzz_cmd, 1);//icos_io_set_direction(0,0x22,0x06,0x00);			// for Alarm
+		usleep(100);
+		buzz_cmd = 0x01;
+		nos_i2c_write(0, 0x22, 0x02, &buzz_cmd, 1);//icos_io_set_direction(0,0x22,0x06,0x00);			// for Alarm
+		usleep(100);
+	}
+	else 
+	{
+		nos_i2c_dev_close(1);
+		nos_i2c_bus_open(1);
+		usleep(100);
 
+		nos_i2c_device_open(1,0x43);
+		usleep(100);
 
+		icos_io_init(1,0x43);//Device soft reset and impedence setting
+		usleep(100);
+	}
+
+}
+#endif

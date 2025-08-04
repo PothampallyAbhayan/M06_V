@@ -1003,14 +1003,45 @@ typedef struct
 	unsigned int wEpochtimeL;
 	unsigned int wEpochtimeH;
 	unsigned int wEpochtime_flag;
-	unsigned int buzzer_stat;
-	unsigned int wManufactureName[1];
-	unsigned int wModel_Name[8];
-	unsigned int PDC_ID;
-	unsigned int wSerial_Num[10];
-	unsigned int wSys_Fw_Ver[8];
-	unsigned int wModbusVersion;
-	unsigned int IPAddress[2];
+	unsigned int buzzer_stat;   //0x10F
+	
+	
+
+	unsigned int wManufactureName[1]; //0x110
+//	unsigned int wModel_Name[8];  //0x111 to 0x118
+	unsigned int Max_Volt_PhaseA; //111
+	unsigned int Max_Volt_PhaseB; //112
+	unsigned int Max_Volt_PhaseC; // 113
+	unsigned int Min_Volt_PhaseA; //114
+	unsigned int Min_Volt_PhaseB; //115
+	unsigned int Min_Volt_PhaseC; //116
+		
+	unsigned int Max_Curr_PhaseA; //117
+	unsigned int Max_Curr_PhaseB; //118
+	unsigned int Max_Curr_PhaseC; //119
+	unsigned int Min_Curr_PhaseA; //11A
+	unsigned int Min_Curr_PhaseB; //11B
+	unsigned int Min_Curr_PhaseC; //11C
+
+	unsigned int PDC_ID;  //0x11D
+	unsigned int sec_total_parameters[5];	//11E 11f 120 121 122	// 0x11E to 0x123
+
+	
+	unsigned int wSerial_Num[1];//123
+        
+	//unsigned int wSys_Fw_Ver[8];//124 - 12B
+	unsigned int wSys_Fw_Ver[4];     //124-128
+    unsigned int wStack_Fw_Ver[4];   //129-12B
+//	unsigned int sec_KWH_Lo;  //12C
+//	unsigned int sec_KWH_Hi;
+//	unsigned int sec_KW;
+//	unsigned int sec_KVA;
+//	unsigned int sec_KVAR;
+	
+//	unsigned int wModbusVersion;//12C
+	unsigned int sec_KVAR;  // 135
+	unsigned int IPAddress[2];// 136
+
 }EE_SYS_INFO;
 
 typedef union
